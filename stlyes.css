@@ -1,0 +1,69 @@
+.nav_fixed {
+  translate: 0 -100%;
+  transition: translate 1s cubic-bezier(.16, 1, .3, 1), background-color .3s ease;
+  will-change: translate;
+}
+
+.nav_fixed.is-in {
+  translate: 0 0;
+}
+
+.nav_fixed.is-hidden {
+  translate: 0 -100%;
+  transition: translate .45s cubic-bezier(.22, 1, .36, 1), background-color .3s ease;
+}
+
+.nav_fixed.is-solid {
+  background-color: var(--bg-light-1, #F0E9DD);
+}
+
+.button {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.btn-fx {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.btn-fx .c {
+  position: absolute;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform .55s cubic-bezier(.22, .61, .36, 1);
+  will-change: transform;
+}
+
+.btn-label {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  overflow: hidden;
+  padding: 0.16em 0;
+  margin: -0.16em 0;
+}
+
+.btn-label .l1,
+.btn-label .l2 {
+  display: block;
+  transition: translate .45s cubic-bezier(.22, 1, .36, 1);
+}
+
+.btn-label .l2 {
+  position: absolute;
+  inset: 0;
+  translate: 0 165%;
+}
+
+.button:hover .btn-label .l1 {
+  translate: 0 -165%;
+}
+
+.button:hover .btn-label .l2 {
+  translate: 0 0;
+}
