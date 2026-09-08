@@ -1,178 +1,213 @@
 /* ==========================================================================
-   Rime.orbit — three brand circles orbiting a point, multiply-blended.
+   Rime.orbit — the homepage player's three circles, also used by the vs
+   badge. Ported from system/rime.js.
 
-   One helper, two users: the play button (large, faster) and the vs badge
-   (small, slowed right down). R is each circle's radius, off is how far
-   from centre they orbit, speed is radians per second.
+   Built against WHITE on an offscreen canvas, multiply-blended, then cut
+   back to only the pixels the circles cover (destination-in). That is what
+   lets it sit on paper, on a pink card or on ink without carrying a white
+   box, and it is why the mixes stay bright instead of going muddy.
 
-     Rime.orbit(canvas, { R: 22, off: 11, speed: 0.3 })
+   Two circles orbit, the third is fixed at centre. The orbiters grow in
+   from 6px and their orbit radius breathes on two sine terms.
 
-   Returns { start, stop, destroy }. The instance pauses itself when it
-   scrolls out of view or the tab hides.
+     Rime.orbit(canvas, { R: 22, off: 11, speed: 0.3 })   // vs badge
+     Rime.orbit(canvas)                                    // play button
+
+   Returns a stop function.
    ========================================================================== */
 window.Rime = window.Rime || {};
 
-Rime.orbit = function (canvas, opts) {
-  if (!canvas) return null;
-  const o = Object.assign({
-    R: 30,
-    off: 15,
-    speed: 0.9,
-    alpha: 0.85,
-    colors: ['#FFD46F', '#FFA0FF', '#2CC3E9'],
-    autoplay: true,
-  }, opts || {});
+Rime.MULT = { yellow: '#ffcf61', pink: '#ff96ff', aqua: '#13bee9' };
 
-  const ctx = canvas.getContext('2d');
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let dpr = 1,
+Rime.orbit = function (canvas, o) {
+  if (!canvas) return function () {};
+  o = o || {};
+  const colors = o.colors || [Rime.MULT.yellow, Rime.MULT.pink, Rime.MULT.aqua];
+  const R = o.R || 32;
+  const OFF = o.off || 16;
+  const SPEED = o.speed || 0.55;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const g = canvas.getContext('2d');
+  const off = document.createElement('canvas');
+  const og = off.getContext('2d');
+  const dpr = 2;
+
+  let W = 0,
+    H = 0,
     raf = 0,
-    phase = 0,
-    last = 0,
-    visible = true,
-    running = false;
+    alive = true,
+    visible = true;
+  const t0 = performance.now();
 
-  function resize() {
-    dpr = Math.min(devicePixelRatio || 1, 2);
-    const w = canvas.clientWidth,
-      h = canvas.clientHeight;
-    if (!w || !h) return;
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-    draw();
+  function size() {
+    W = canvas.clientWidth || canvas.width / dpr;
+    H = canvas.clientHeight || canvas.height / dpr;
+    if (!W || !H) return;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    off.width = canvas.width;
+    off.height = canvas.height;
   }
 
-  function draw() {
-    const w = canvas.clientWidth,
-      h = canvas.clientHeight;
-    if (!w || !h) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    const cx = w / 2,
-      cy = h / 2;
-    ctx.globalAlpha = o.alpha;
-    for (let i = 0; i < o.colors.length; i++) {
-      const a = phase + (i / o.colors.length) * Math.PI * 2;
-      ctx.fillStyle = o.colors[i];
-      ctx.beginPath();
-      ctx.arc(cx + Math.cos(a) * o.off, cy + Math.sin(a) * o.off, o.R, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
+  const circle = (ctx, x, y, r) => {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
+  function paint(now) {
+    if (!W || !H) return;
+    const dt = reduced ? 1.2 : (now - t0) / 1000;
+    const cx = W / 2,
+      cy = H / 2;
+    const k = Math.min(1, dt / 0.55);
+    const grow = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+    const aL = SPEED * dt + Math.PI,
+      aR = SPEED * dt;
+    const rL = OFF * (1 + 0.14 * Math.sin(dt * 3.7) + 0.06 * Math.sin(dt * 6.3 + 1.2));
+    const rR = OFF * (1 + 0.14 * Math.sin(dt * 4.4 + 2.1) + 0.06 * Math.sin(dt * 7.6));
+    const pts = [
+      [cx + rL * Math.cos(aL), cy + rL * Math.sin(aL), 6 + grow * (R - 6)],
+      [cx + rR * Math.cos(aR), cy + rR * Math.sin(aR), 6 + grow * (R - 6)],
+      [cx, cy, R],
+    ];
+
+    og.setTransform(dpr, 0, 0, dpr, 0, 0);
+    og.globalCompositeOperation = 'source-over';
+    og.fillStyle = '#fff';
+    og.fillRect(0, 0, W, H);
+
+    og.globalCompositeOperation = 'multiply';
+    pts.forEach(([x, y, r], i) => {
+      og.fillStyle = colors[i];
+      circle(og, x, y, r);
+    });
+
+    // keep only what the circles cover, so there is no white plate
+    og.globalCompositeOperation = 'destination-in';
+    og.fillStyle = '#000';
+    og.beginPath();
+    pts.forEach(([x, y, r]) => {
+      og.moveTo(x + r, y);
+      og.arc(x, y, r, 0, Math.PI * 2);
+    });
+    og.fill();
+
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, canvas.width, canvas.height);
+    g.drawImage(off, 0, 0);
   }
 
-  function tick(now) {
-    if (!running) { raf = 0; return; }
-    if (!last) last = now;
-    const dt = Math.min(0.05, (now - last) / 1000);
-    last = now;
-    phase += o.speed * dt;
-    draw();
-    raf = requestAnimationFrame(tick);
+  function frame(now) {
+    if (!alive) return;
+    raf = requestAnimationFrame(frame);
+    if (!visible || document.hidden) return;
+    paint(now);
   }
 
-  function start() {
-    if (running || reduce || !visible || document.hidden) return;
-    running = true;
-    last = 0;
-    raf = requestAnimationFrame(tick);
-  }
+  const onResize = () => {
+    size();
+    paint(performance.now());
+  };
+  addEventListener('resize', onResize);
 
-  function stop() {
-    running = false;
-    if (raf) cancelAnimationFrame(raf);
-    raf = 0;
-  }
-
-  const io = new IntersectionObserver((en) => {
-    visible = en[0].isIntersecting;
-    if (visible && o.autoplay) start();
-    else stop();
+  const io = new IntersectionObserver((es) => {
+    visible = es[0]
+      .isIntersecting;
   }, { rootMargin: '80px' });
   io.observe(canvas);
 
-  const onVis = () => {
-    if (document.hidden) stop();
-    else if (o.autoplay) start();
-  };
-  document.addEventListener('visibilitychange', onVis);
-  addEventListener('resize', resize);
+  size();
 
-  resize();
-  if (o.autoplay) start();
-  else draw();
+  if (reduced) {
+    paint(performance.now());
+  } else {
+    raf = requestAnimationFrame(frame);
+  }
 
-  return {
-    start,
-    stop,
-    destroy() {
-      stop();
-      io.disconnect();
-      document.removeEventListener('visibilitychange', onVis);
-      removeEventListener('resize', resize);
-    },
+  return function stop() {
+    alive = false;
+    cancelAnimationFrame(raf);
+    io.disconnect();
+    removeEventListener('resize', onResize);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, canvas.width, canvas.height);
   };
 };
 
 /* ---- vs badge ---- */
 (() => {
   const c = document.querySelector('.vs-orbit');
-  if (c) Rime.orbit(c, { R: 26, off: 7, speed: 0.3 });
+  if (c) Rime.orbit(c, { R: 22, off: 11, speed: 0.3 });
 })();
 
-/* ---- A/B player ---- */
+/* ---- compare page A/B player ----
+   One shared audio element, one playing at a time. The orbit only runs
+   while a sample plays: the button goes transparent and the circles show
+   through it. The competitor's orbit is greyed rather than brand-coloured. */
 (() => {
-  const wraps = [...document.querySelectorAll('.play-wrap[data-src]')];
-  if (!wraps.length) return;
+  const buttons = [...document.querySelectorAll('.player_button[data-src]')];
+  if (!buttons.length) return;
 
-  const players = wraps.map((wrap) => {
-    const button = wrap.querySelector('.player_button');
-    const canvas = wrap.querySelector('.play-orbit');
-    const audio = new Audio();
-    audio.preload = 'none';
-    audio.src = wrap.dataset.src;
+  const audio = new Audio();
+  audio.preload = 'none';
+  const orbits = new WeakMap();
+  let active = null;
 
-    const orbit = canvas ? Rime.orbit(canvas, { R: 44, off: 22, speed: 0.9 }) : null;
+  const isThem = (btn) => btn.classList.contains('them') || btn.classList.contains('is-them');
 
-    const p = { wrap, button, audio, orbit };
+  function startOrbit(btn) {
+    stopOrbit(btn);
+    const wrap = btn.parentElement;
+    const c = wrap && wrap.querySelector('.play-orbit');
+    if (!c) return;
+    const base = (wrap.style.getPropertyValue('--play-mult') || '').trim().toLowerCase();
+    const all = [Rime.MULT.yellow, Rime.MULT.pink, Rime.MULT.aqua];
+    const others = all.filter((m) => m !== base);
+    // the centre circle takes the button's own colour, the two that orbit
+    // are the other brand colours
+    const colors = isThem(btn) ? ['#e8e1d4', '#f0e9dd', '#ddd6c9'] :
+      base ? [others[0], others[1], base] : null;
+    orbits.set(btn, Rime.orbit(c, colors ? { colors } : {}));
+  }
 
-    p.setState = () => {
-      const on = !audio.paused;
-      button.classList.toggle('playing', on);
-      button.classList.toggle('paused-icon', on);
-      button.setAttribute('aria-pressed', String(on));
-    };
+  function stopOrbit(btn) {
+    const stop = orbits.get(btn);
+    if (stop) {
+      stop();
+      orbits.delete(btn);
+    }
+  }
 
-    button.addEventListener('click', () => {
-      // one at a time: pressing either stops the other
-      players.forEach((o) => {
-        if (o !== p) {
-          o.audio.pause();
-          o.setState();
-        }
-      });
-      if (audio.paused) {
-        const pr = audio.play();
-        if (pr && pr.catch) pr.catch(() => {});
-      } else {
-        audio.pause();
-      }
+  function stop() {
+    if (!active) return;
+    active.classList.remove('is-playing', 'playing', 'paused-icon');
+    active.setAttribute('aria-pressed', 'false');
+    stopOrbit(active);
+    const cell = active.closest('.player-cell');
+    if (cell) cell.classList.remove('is-active');
+    active = null;
+  }
+
+  audio.addEventListener('ended', stop);
+  audio.addEventListener('pause', () => { if (!audio.ended && active) stop(); });
+
+  buttons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (active === btn) { audio.pause(); return; }
+      stop();
+      audio.src = btn.dataset.src;
+      const p = audio.play();
+      if (p && p.catch) p.catch(() => {});
+      active = btn;
+      btn.classList.add('is-playing', 'playing', 'paused-icon');
+      btn.setAttribute('aria-pressed', 'true');
+      startOrbit(btn);
+      const cell = btn.closest('.player-cell');
+      if (cell) cell.classList.add('is-active');
     });
-
-    ['play', 'pause', 'ended'].forEach((ev) => audio.addEventListener(ev, p.setState));
-    audio.addEventListener('ended', () => { audio.currentTime = 0; });
-
-    p.setState();
-    return p;
   });
 
-  const stopAll = () => players.forEach((p) => {
-    p.audio.pause();
-    p.setState();
-  });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) stopAll(); });
-
-  const card = players[0].wrap.closest('.player-card') || players[0].wrap;
-  new IntersectionObserver((en) => { if (!en[0].isIntersecting) stopAll(); }, { threshold: 0 })
-    .observe(card);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) audio.pause(); });
 })();
