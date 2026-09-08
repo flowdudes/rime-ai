@@ -18,6 +18,7 @@ Rime.orbit = function (canvas, opts) {
     R: 30,
     off: 15,
     speed: 0.9,
+    alpha: 0.85,
     colors: ['#FFD46F', '#FFA0FF', '#2CC3E9'],
     autoplay: true,
   }, opts || {});
@@ -49,8 +50,7 @@ Rime.orbit = function (canvas, opts) {
     ctx.clearRect(0, 0, w, h);
     const cx = w / 2,
       cy = h / 2;
-    // multiply is what makes the overlaps read as a single ink
-    ctx.globalCompositeOperation = 'multiply';
+    ctx.globalAlpha = o.alpha;
     for (let i = 0; i < o.colors.length; i++) {
       const a = phase + (i / o.colors.length) * Math.PI * 2;
       ctx.fillStyle = o.colors[i];
@@ -58,7 +58,7 @@ Rime.orbit = function (canvas, opts) {
       ctx.arc(cx + Math.cos(a) * o.off, cy + Math.sin(a) * o.off, o.R, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
   }
 
   function tick(now) {
@@ -117,7 +117,7 @@ Rime.orbit = function (canvas, opts) {
 /* ---- vs badge ---- */
 (() => {
   const c = document.querySelector('.vs-orbit');
-  if (c) Rime.orbit(c, { R: 22, off: 11, speed: 0.3 });
+  if (c) Rime.orbit(c, { R: 26, off: 7, speed: 0.3 });
 })();
 
 /* ---- A/B player ---- */
