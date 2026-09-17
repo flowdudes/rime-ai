@@ -11,10 +11,6 @@
   });
 })();
 
-const HERO_ABOVE = 226;
-const HERO_BELOW = 100;
-const SUB_NUDGE = 0;
-
 // PRSM MARK
 (() => {
   const C = {
@@ -1169,51 +1165,197 @@ const SUB_NUDGE = 0;
   window.PrsmHero = PrsmHero;
 })();
 
-/* ---- hero ---- */
+// PRSM PAGE 
+const HERO_ABOVE = 226;
+const HERO_BELOW = 100;
+const SUB_NUDGE = 0;
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 (() => {
   const canvas = document.getElementById('hero-c');
   const heroEl = document.getElementById('hero');
-  if (!canvas || !heroEl || typeof PrsmHero === 'undefined') return;
+  if (!canvas || !heroEl) return;
 
-  const hero = new PrsmHero(canvas);
-  hero.set({ lineY: 0.4 });
-  hero.start();
-  heroEl.style.background = hero.s.ground;
-  window.__prsm = { hero };
-
-  const layout = () => {
-    const h = heroEl.clientHeight || 1;
-    const prism = hero.s.arrowSize * h;
-    hero.set({ lineY: Math.max(0.05, Math.min(0.95, (HERO_ABOVE + prism / 2) / h)) });
-    heroEl.style.setProperty('--hero-copy-top', Math.round(HERO_ABOVE + prism + HERO_BELOW) +
-      'px');
-  };
-  new ResizeObserver(layout).observe(heroEl);
-  layout();
-
-  const h1El = heroEl.querySelector('h1');
-  const subEl = heroEl.querySelector('.hero_sub');
-  const wrapEl = heroEl.querySelector('.hero_text-wrap');
-  const inkTop = (el, sample) => {
-    const cs = getComputedStyle(el);
-    const g = document.createElement('canvas').getContext('2d');
-    g.font = cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
-    const m = g.measureText(sample);
-    const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize);
-    return (lh - (m.fontBoundingBoxAscent + m.fontBoundingBoxDescent)) / 2 +
-      (m.fontBoundingBoxAscent - m.actualBoundingBoxAscent);
+  const boot = () => {
+    if (typeof PrsmHero === 'undefined') return setTimeout(boot, 40);
+    start();
   };
 
-  const alignTops = () => {
+  function start() {
+    const hero = new PrsmHero(canvas, PrsmHero.REFRACTION);
+    hero.set({ lineY: 0.4 });
+    heroEl.style.background = hero.s.ground;
+    window.__prsm = { hero };
+
+    const entering = document.documentElement.classList.contains('prsm-entering');
+    if (entering) intro(hero);
+    else hero.start();
+
+    layout(hero);
+    align(hero);
+    wearFace(hero);
+  }
+
+  function intro(hero) {
+    const stage = document.getElementById('stage');
+    const reveal = [...document.querySelectorAll('.hero-copy')];
+    const overlay = document.createElement('canvas');
+    overlay.className = 'prsm-intro';
+    overlay.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(overlay);
+    const ctx = overlay.getContext('2d');
+
+    let began, lastTime, previousTurn = -1.7;
+    hero.yaw -= 1.7;
+
+    const finish = () => {
+      reveal.forEach((el) => {
+        el.style.removeProperty('transform');
+        el.style.removeProperty('transform-origin');
+      });
+      overlay.remove();
+      if (stage) {
+        stage.style.removeProperty('opacity');
+        stage.style.removeProperty('transform');
+        stage.style.removeProperty('transform-origin');
+      }
+      document.documentElement.classList.remove('prsm-entering');
+      hero.appear = 1;
+      hero.draw();
+      hero.start();
+    };
+
+    const frame = (now) => {
+      if (began === undefined) began = now;
+      const elapsed = (now - began) / 1000;
+      const dt = lastTime === undefined ? 0 : Math.min(0.05, (now - lastTime) / 1000);
+      lastTime = now;
+
+      if (elapsed >= 2.1 || REDUCED) { finish(); return; }
+
+      const ease = (u) => {
+        u = Math.max(0, Math.min(1, u));
+        return u * u * u * (u * (u * 6 -
+          15) + 10);
+      };
+      const zoom = ease((elapsed - 0.35) / 1.2);
+      const W = innerWidth,
+        H = innerHeight,
+        d = Math.min(devicePixelRatio || 1, 2);
+
+      if (overlay.width !== Math.round(W * d) || overlay.height !== Math.round(H * d)) {
+        overlay.width = Math.round(W * d);
+        overlay.height = Math.round(H * d);
+      }
+      if (hero.canvas.clientWidth !== hero.W || hero.canvas.clientHeight !== hero.H) hero
+        .resize();
+
+      const base = hero.geo();
+      const bounds = hero.canvas.getBoundingClientRect();
+      const initial = Math.min(W, H) * 0.76;
+      const G = {
+        ...base,
+        cx: W / 2 + (bounds.left + base.cx - W / 2) * zoom,
+        cy: H / 2 + (bounds.top + base.cy - H / 2) * zoom,
+        base: initial + (base.base - initial) * zoom,
+      };
+      G.hx = G.base * hero.s.arrowShape;
+
+      const turn = -1.7 * (1 - zoom);
+      hero.yaw += turn - previousTurn;
+      previousTurn = turn;
+
+      const originalGeo = hero.geo;
+      hero.geo = () => ({
+        ...G,
+        cx: G.cx - bounds.left,
+        cy: G.cy - bounds.top,
+        dotA: { ...G.dotA, y: G.cy - bounds.top },
+        dotB: { ...G.dotB, y: G.cy - bounds.top },
+      });
+      hero.appear = 1;
+      if (elapsed >= 0.35) hero.tick(dt);
+      hero.pitch = -0.3 + (hero.rollA || 0) + 0.055 * Math.sin(hero.t * 0.9) + 0.4 * (1 - zoom);
+      const showDots = hero.s.dots;
+      hero.s.dots = elapsed >= 0.35;
+      hero.draw();
+      hero.s.dots = showDots;
+      hero.geo = originalGeo;
+
+      ctx.setTransform(d, 0, 0, d, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = hero.s.ground;
+      ctx.fillRect(0, 0, W, H);
+      ctx.drawImage(hero.canvas, bounds.left, bounds.top, hero.W, hero.H);
+
+      const contentZoom = ease((elapsed - 0.55) / 1.55);
+      const scale = 1 + 1.35 * (1 - contentZoom);
+      reveal.forEach((el) => {
+        el.style.transform = 'none';
+        const box = el.getBoundingClientRect();
+        el.style.transformOrigin =
+          (bounds.left + base.cx - box.left) + 'px ' + (bounds.top + base.cy - box.top) +
+          'px';
+        el.style.transform = 'scale(' + scale + ')';
+      });
+
+      if (elapsed > 0.65) {
+        document.documentElement.classList.remove('prsm-entering');
+        if (stage) stage.style.opacity = '1';
+      }
+
+      overlay.style.opacity = String(1 - ease((elapsed - 0.65) / 0.75));
+      requestAnimationFrame(frame);
+    };
+
+    const go = () => requestAnimationFrame(() => requestAnimationFrame(frame));
+    if (document.fonts) document.fonts.ready.then(go);
+    else go();
+  }
+
+  function layout(hero) {
+    const run = () => {
+      const h = heroEl.clientHeight || 1;
+      const prism = hero.s.arrowSize * h;
+      hero.set({ lineY: Math.max(0.05, Math.min(0.95, (HERO_ABOVE + prism / 2) / h)) });
+      heroEl.style.setProperty('--hero-copy-top', Math.round(HERO_ABOVE + prism + HERO_BELOW) +
+        'px');
+    };
+    new ResizeObserver(run).observe(heroEl);
+    run();
+  }
+
+  function align() {
+    const h1El = heroEl.querySelector('h1');
+    const subEl = heroEl.querySelector('.hero_sub .text-size-medium') ||
+      heroEl.querySelector('.hero_sub');
+    const wrapEl = heroEl.querySelector('.hero_text-wrap');
     if (!h1El || !subEl || !wrapEl) return;
-    const d = inkTop(h1El, 'prsm is the first') - inkTop(subEl, 'PRSM reasons over');
-    wrapEl.style.setProperty('--hero-sub-top', (Math.round(d) + SUB_NUDGE) + 'px');
-  };
-  if (h1El) new ResizeObserver(alignTops).observe(h1El);
-  if (document.fonts) document.fonts.ready.then(alignTops);
-  alignTops();
-  const word = heroEl.querySelector('.hero-lockup .word');
-  if (word) {
+
+    const inkTop = (el, sample) => {
+      const cs = getComputedStyle(el);
+      const g = document.createElement('canvas').getContext('2d');
+      g.font = cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+      const m = g.measureText(sample);
+      const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize);
+      return (lh - (m.fontBoundingBoxAscent + m.fontBoundingBoxDescent)) / 2 +
+        (m.fontBoundingBoxAscent - m.actualBoundingBoxAscent);
+    };
+
+    const run = () => {
+      const d = inkTop(h1El, 'Prism is the first') - inkTop(subEl, 'Prism reasons over');
+      wrapEl.style.setProperty('--hero-sub-top', (Math.round(d) + SUB_NUDGE) + 'px');
+    };
+
+    new ResizeObserver(run).observe(h1El);
+    if (document.fonts) document.fonts.ready.then(run);
+    run();
+  }
+
+  function wearFace(hero) {
+    const word = heroEl.querySelector('.hero-lockup .word');
+    if (!word) return;
     let worn = null;
     let wasSpinning = false;
     const wear = () => {
@@ -1230,204 +1372,10 @@ const SUB_NUDGE = 0;
       requestAnimationFrame(watch);
     })();
   }
+
+  boot();
 })();
 
-/* ---- the two wrong answers, and PRSM ---- */
-(() => {
-  if (typeof PrsmHero === 'undefined') return;
-
-  const fc = document.getElementById('kg-frontier');
-  const pc = document.getElementById('kg-prsm');
-
-  if (fc) {
-    const frontier = new PrsmHero(fc);
-    frontier.set({
-      ground: '#f8f3ea',
-      radius: 4,
-      wavelength: 140,
-      words: 8,
-      speed: 75,
-      arrowSize: 0.02,
-      drift: 0,
-      dotSize: 1.2,
-      dotX: 0.1,
-      suck: 44,
-      land: 44,
-      emerge: 3,
-      exit: 3,
-      lineY: 0.5,
-      speedMul: 1,
-      dotA: '#242424',
-      dotB: '#8a8a8a',
-      voiceA: ['#242424', '#8a8a8a', '#cfcfcf'],
-      voiceB: ['#4a4a4a', '#a8a8a8', '#242424'],
-    });
-    frontier.start();
-    const box = document.querySelector('.kg-box');
-    if (box) {
-      const spinners = [...box.querySelectorAll('i')];
-      (function boxTick() {
-        requestAnimationFrame(boxTick);
-        const mid = frontier.canvas.clientWidth / 2;
-        const half = 50;
-        const inside = frontier.cols.filter((c) => Math.abs(c.x - mid) < half && Number
-          .isFinite(c.x));
-        spinners.forEach((el, i) => {
-          const c = inside[i];
-          if (!c) { el.style.opacity = '0'; return; }
-          const prog = Math.max(0, Math.min(1, (c.x - (mid - half)) / (half * 2)));
-          const a = prog * Math.PI * 3;
-          el.style.opacity = '0.8';
-          el.style.transform = 'translate(' + (Math.cos(a) * 22).toFixed(1) + 'px, ' +
-            (Math.sin(a) * 15).toFixed(1) + 'px)';
-        });
-      })();
-    }
-  }
-
-  if (pc) {
-    const mini = new PrsmHero(pc);
-    mini.set({
-      radius: 5.5,
-      wavelength: 230,
-      words: 12,
-      speed: 140,
-      arrowSize: 0.22,
-      drift: 14,
-      dotSize: 1.25,
-      dotX: 0.08,
-      suck: 80,
-      land: 70,
-      lineY: 0.5,
-      speedMul: 1.3,
-    });
-    mini.start();
-  }
-
-  const bootKinds = () => {
-    if (!window.Rime || !Rime.dots) return setTimeout(bootKinds, 40);
-    const PL = '#f8f3ea';
-    const v = document.getElementById('kg-voice');
-    const f = document.getElementById('kg-flat');
-    const o = document.getElementById('kg-out');
-    if (v) Rime.dots(v, {
-      bg: PL,
-      cols: 13,
-      count: 9,
-      amplitude: 0.62,
-      waveSpeed: 0.55,
-      colors: ['#242424', '#8a8a8a', '#cfcfcf']
-    });
-    if (f) Rime.dots(f, {
-      bg: PL,
-      cols: 11,
-      count: 1,
-      amplitude: 0,
-      radiusFrac: 0.3,
-      colors: [
-        '#b3ab9d', '#b3ab9d', '#b3ab9d'
-      ]
-    });
-    if (o) Rime.dots(o, {
-      bg: PL,
-      cols: 9,
-      count: 3,
-      amplitude: 0.35,
-      waveSpeed: 0.35,
-      colors: [
-        '#a8a8a8', '#d2d2d2', '#8a8a8a'
-      ]
-    });
-  };
-  bootKinds();
-})();
-
-/* ---- the iteration curve ---- */
-(() => {
-  const cv = document.getElementById('curve');
-  const row = document.getElementById('curve-card');
-  if (!cv || !row) return;
-
-  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const vAt = (x) => 0.14 + 0.36 * x + 0.42 * x * x *
-    x; // the slope grows: it keeps climbing, faster
-  const PARITY = 0.5,
-    PROD = 0.72,
-    DOTS = 64;
-
-  const draw = (k) => {
-    const dpr = 2,
-      W = cv.clientWidth,
-      H = cv.clientHeight;
-    if (!W || !H) return;
-    if (cv.width !== W * dpr) {
-      cv.width = W * dpr;
-      cv.height = H * dpr;
-    }
-    const g = cv.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, W, H);
-
-    const l = 14,
-      r = 14,
-      t = 22,
-      b = 26;
-    const X = (x) => l + x * (W - l - r);
-    const Y = (v) => H - b - v * (H - t - b);
-
-    g.font = '500 10.5px "NaN Holo Mono", ui-monospace, monospace';
-    g.setLineDash([3, 5]);
-    g.lineWidth = 1;
-    g.strokeStyle = 'rgba(46, 42, 37, .3)';
-    g.beginPath();
-    g.moveTo(l, Y(PARITY));
-    g.lineTo(W - r, Y(PARITY));
-    g.stroke();
-    g.beginPath();
-    g.moveTo(X(PROD), Y(0));
-    g.lineTo(X(PROD), Y(0.98));
-    g.stroke();
-
-    g.setLineDash([]);
-    g.fillStyle = 'rgba(46, 42, 37, .5)';
-    g.textAlign = 'right';
-    g.fillText('PARITY', W - r, Y(PARITY) - 7);
-    g.textAlign = 'center';
-    g.fillText('PRODUCTION', X(PROD), H - 8);
-    g.textAlign = 'left';
-    g.fillText('BASELINE', X(0), Y(vAt(0)) + 22);
-
-    g.save();
-    g.globalCompositeOperation = 'multiply';
-    g.fillStyle = '#2cc3e9';
-    const head = k * DOTS;
-    for (let i = 0; i <= Math.min(DOTS, Math.floor(head)); i++) {
-      const x = i / DOTS;
-      g.beginPath();
-      g.arc(X(x), Y(vAt(x)), 6.5, 0, Math.PI * 2);
-      g.fill();
-    }
-    if (k < 0.99) {
-      const x = head / DOTS;
-      g.beginPath();
-      g.arc(X(x), Y(vAt(x)), 8, 0, Math.PI * 2);
-      g.fill();
-    }
-    g.restore();
-  };
-
-  const k = () => {
-    const r = row.getBoundingClientRect();
-    return Math.max(0, Math.min(1, (innerHeight - r.top - 100) / (innerHeight * 0.7)));
-  };
-  const paint = () => draw(REDUCED ? 1 : k());
-
-  addEventListener('scroll', paint, { passive: true });
-  new ResizeObserver(paint).observe(cv);
-  paint();
-})();
-
-/* ---- the demo video modal, growing out of the frame that was clicked ---- */
 (() => {
   const modal = document.getElementById('video-modal');
   const frame = document.getElementById('video-open');
@@ -1436,15 +1384,14 @@ const SUB_NUDGE = 0;
   const card = modal.querySelector('.vm-card');
   const back = document.getElementById('video-back');
   const x = document.getElementById('video-x');
-  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const frameTransform = () => {
     const f = frame.getBoundingClientRect();
     const t = card.getBoundingClientRect();
     const dx = f.left + f.width / 2 - (t.left + t.width / 2);
     const dy = f.top + f.height / 2 - (t.top + t.height / 2);
-    return 'translate(' + dx + 'px, ' + dy + 'px) scale(' + (f.width / t.width) + ', ' + (f
-      .height / t.height) + ')';
+    return 'translate(' + dx + 'px, ' + dy + 'px) scale(' +
+      (f.width / t.width) + ', ' + (f.height / t.height) + ')';
   };
 
   const open = () => {
@@ -1832,4 +1779,421 @@ const SUB_NUDGE = 0;
     }
   }
   customElements.define('prsm-feature', Feature);
+})();
+
+/* Concurrent work between two voices: understand, retrieve and check while responding. */
+(() => {
+  const playbackRate = 1.15;
+  const yellow = '#ffd46f',
+    green = '#8be89a',
+    voiceY = 106,
+    pulseTravel = 2.25;
+  const callerPulseGap = .5,
+    callerDuration = pulseTravel + 2 * callerPulseGap;
+  const callerStart = 1.1,
+    workStart = callerStart + pulseTravel;
+  const timing = {
+    discernEnd: 2.1,
+    toolStart: .65,
+    toolEnd: 5.85,
+    ackCheckStart: 1.35,
+    ackCheckEnd: 2.35,
+    ackStart: 2.6,
+    finalCheckEnd: 7.1,
+    replyStart: 7.35,
+    voiceDuration: 3.15
+  };
+  const total = workStart + timing.replyStart + timing.voiceDuration + 1.1;
+  const clamp = v => Math.max(0, Math.min(1, v)),
+    ease = v => { v = clamp(v); return v * v * (3 - 2 * v); };
+  // Independent work clocks let speech and a lookup overlap without making the speakers overlap.
+  const scene = t => {
+    const work = t - workStart,
+      callerTime = t - callerStart;
+    const caller = callerTime >= 0 && callerTime < callerDuration;
+    const ack = work >= timing.ackStart && work < timing.ackStart + timing.voiceDuration;
+    const reply = work >= timing.replyStart && work < timing.replyStart + timing.voiceDuration;
+    const voice = caller ? {
+      side: 0,
+      local: callerTime,
+      duration: callerDuration,
+      gap: callerPulseGap,
+      inbound: true
+    } : ack || reply ? {
+      side: 1,
+      local: work - (reply ?
+        timing.replyStart : timing.ackStart),
+      duration: timing.voiceDuration,
+      gap: .45,
+      inbound: false
+    } : null;
+    return {
+      work,
+      callerTime,
+      voice,
+      ack,
+      reply,
+      waiting: work < 0,
+      approved: work >= timing.finalCheckEnd,
+      phase: t < callerStart ? 'ready' : work < 0 ? 'caller-in' : reply ? 'agent-reply' : ack ?
+        'agent-acknowledgment' : work >= timing.finalCheckEnd ? 'approved' : 'working'
+    };
+  };
+  const exchanges = [
+  {
+    discern: {
+      thinking: 'Listening to the caller’s pace and concern about after-surgery care.',
+      outcome: 'Worried tone',
+      tab: 'Caller: worried',
+      detail: '“Worried” and an uncertain tone call for reassurance.'
+    },
+    tools: {
+      thinking: 'Looking up the caller’s care plan while the conversation continues.',
+      outcome: 'Care plan retrieved',
+      tab: 'Plan: found',
+      detail: 'The care team’s after-surgery instructions are ready.'
+    },
+    acknowledgment: 'I hear your concern. Let me check your care instructions.',
+    reply: 'Let’s review your care team’s instructions together.',
+    finalDetail: 'The response stays within the retrieved care plan.'
+  },
+  {
+    discern: {
+      thinking: 'Listening to the caller’s uncertainty about who to contact.',
+      outcome: 'Confused tone',
+      tab: 'Caller: confused',
+      detail: '“Who should I call?” signals a need for a clear next step.'
+    },
+    tools: {
+      thinking: 'Finding the caller’s assigned care team while the agent reassures them.',
+      outcome: 'Care team found',
+      tab: 'Team: found',
+      detail: 'The assigned care team’s contact details are ready.'
+    },
+    acknowledgment: 'I can help with that. Let me find the right person.',
+    reply: 'I can connect you with your assigned care team.',
+    finalDetail: 'The response uses the verified care-team contact.'
+  }];
+  class CallFlow extends HTMLElement {
+    connectedCallback() {
+      if (this.ready) return;
+      this.ready = true;
+      this.style.setProperty('--cf-rate', playbackRate);
+      this.time = 0;
+      this.exchange = 0;
+      this.columns = 0;
+      this.motion = matchMedia('(prefers-reduced-motion: reduce)');
+      this.innerHTML = `<div class="cf-journey" role="img" aria-label="Caller waves feed a shared workspace. Discernment, tools and guardrails work concurrently. The agent gives a checked acknowledgment while the tool lookup continues, then gives a checked response using the result.">
+        <div class="cf-speech"><div class="cf-person"><span class="cf-name"><i></i>Caller</span></div><div class="cf-person cf-agent"><span class="cf-name"><i></i>Agent</span></div></div>
+        <svg class="cf-signal" aria-hidden="true"><g class="cf-wave">${'<circle/>'.repeat(400)}</g></svg>
+        <div class="cf-deck-space"><div class="cf-deck">
+          <svg class="cf-orbit" aria-hidden="true"><path fill="none" stroke="none"/><circle class="cf-work-dot" r="6"/><circle class="cf-response-dot" r="6"/></svg>
+          <div class="cf-content">
+            <div class="cf-waiting"><div class="cf-ready-dots"><i></i><i></i><i></i></div><h3>Ready when you are.</h3><p>Waiting for the caller.</p></div>
+            <div class="cf-workspace">
+              <div class="cf-rows">
+                ${['Discernment','Tools','Guardrails'].map((label,i)=>`<article class="cf-row cf-row-${i}">
+                  <div class="cf-row-head"><div class="cf-step"><i class="cf-step-fill"></i><span><svg class="cf-step-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10 3 3 7-7"/></svg><b class="cf-step-label">${label}</b></span></div><span class="cf-status"><i></i><b>Waiting</b></span></div>
+                  <div class="cf-row-body"><h3></h3><p></p></div>
+                </article>`).join('')}
+              </div>
+              <div class="cf-output"><div class="cf-output-head"><i></i><span>Listening to the caller</span></div><p>The right response starts with understanding.</p></div>
+            </div>
+          </div>
+        </div></div>
+      </div>`;
+      this.shell = this.querySelector('.cf-journey');
+      this.svg = this.querySelector('.cf-signal');
+      this.deck = this.querySelector('.cf-deck');
+      this.deckSpace = this.querySelector('.cf-deck-space');
+      this.content = this.querySelector('.cf-content');
+      this.wave = [...this.querySelectorAll('.cf-wave circle')];
+      this.people = [...this.querySelectorAll('.cf-person')];
+      this.rows = [...this.querySelectorAll('.cf-row')];
+      this.steps = [...this.querySelectorAll('.cf-step')];
+      this.stepLabels = this.steps.map(e => e.querySelector('.cf-step-label'));
+      this.fills = this.steps.map(e => e.querySelector('.cf-step-fill'));
+      this.workspace = this.querySelector('.cf-workspace');
+      this.waiting = this.querySelector('.cf-waiting');
+      this.waitTitle = this.waiting.querySelector('h3');
+      this.waitCaption = this.waiting.querySelector('p');
+      this.output = this.querySelector('.cf-output');
+      this.orbit = this.querySelector('.cf-orbit');
+      this.orbitPath = this.orbit.querySelector('path');
+      this.orbitDot = this.querySelector('.cf-work-dot');
+      this.responseDot = this.querySelector('.cf-response-dot');
+      this.resize = new ResizeObserver(() => this.measure());
+      this.resize.observe(this.shell);
+      this.onResize = () => this.measure();
+      window.addEventListener('resize', this.onResize);
+      this.onMotion = () => this.schedule();
+      this.onVisibility = () => this.schedule();
+      this.motion.addEventListener('change', this.onMotion);
+      document.addEventListener('visibilitychange', this.onVisibility);
+      this.observer = new IntersectionObserver(e => {
+        this.visible = e[0].isIntersecting;
+        this.schedule();
+      }, { threshold: .1 });
+      this.observer.observe(this);
+      this.measure();
+    }
+    measure() {
+      const box = this.shell.getBoundingClientRect();
+      if (!box.width) return;
+      this.W = box.width;
+      this.deckTop = this.deckSpace.offsetTop;
+      const viewport = document.documentElement.clientWidth;
+      // Draw across the actual page viewport, including the studio iframe's viewport.
+      // The path continues beyond the clipped SVG so neither voice has a visible end.
+      this.bleed = Math.max(box.left, viewport - box.right) + 64;
+      this.svg.style.left = `${-box.left}px`;
+      this.svg.style.width = `${viewport}px`;
+      this.svg.setAttribute('viewBox', `${-box.left} 0 ${viewport} ${box.height}`);
+      const geometry = this.voicePath(0, 0),
+        columns = Math.max(40, Math.ceil(geometry.length / (geometry.r * 1.75)) + 1);
+      if (this.columns !== columns) {
+        this.columns = columns;
+        this.querySelector('.cf-wave').innerHTML = '<circle/>'.repeat(columns * 10);
+        this.wave = [...this.querySelectorAll('.cf-wave circle')];
+      }
+      const deckBox = this.deck.getBoundingClientRect(),
+        w = deckBox.width,
+        h = deckBox.height,
+        gap = 14,
+        r = parseFloat(getComputedStyle(this.deck).borderTopLeftRadius) + gap;
+      this.deckLeft = (this.W - w) / 2;
+      this.orbit.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      this.orbitPath.setAttribute('d',
+        `M ${w/2} ${-gap} H ${w+gap-r} Q ${w+gap} ${-gap} ${w+gap} ${r-gap} V ${h+gap-r} Q ${w+gap} ${h+gap} ${w+gap-r} ${h+gap} H ${r-gap} Q ${-gap} ${h+gap} ${-gap} ${h+gap-r} V ${r-gap} Q ${-gap} ${-gap} ${r-gap} ${-gap} Z`
+      );
+      this.orbitLength = this.orbitPath.getTotalLength();
+      this.update();
+    }
+    voicePath(distance, side) {
+      const start = -this.bleed,
+        r = Math.min(8, (this.W * .46 + this.deckTop - voiceY) / 39 * .62),
+        lane = r * .75,
+        mid = this.W / 2 - lane,
+        turn = Math.min(32, this.W * .065);
+      const straight = mid - start - turn,
+        arc = Math.PI * turn / 2,
+        drop = this.deckTop - 14 - voiceY - turn,
+        length = straight + arc + drop;
+      let x, y, nx, ny;
+      if (distance < straight) {
+        x = start + distance;
+        y = voiceY;
+        nx = 0;
+        ny = 1;
+      }
+      else if (distance < straight + arc) {
+        const a = (distance - straight) / turn;
+        x = mid - turn + Math.sin(a) * turn;
+        y = voiceY + turn - Math.cos(a) * turn;
+        nx = -Math.sin(a);
+        ny = Math.cos(a);
+      }
+      else {
+        // Separate yellow and green stems, then gently meet at the orbit dock.
+        const merge = clamp((distance - (length - 28)) / 28),
+          slope = lane * 6 * merge * (1 - merge) / 28;
+        x = mid + lane * ease(merge);
+        y = voiceY + turn + distance - straight - arc;
+        nx = -1 / Math.hypot(1, slope);
+        ny = slope / Math.hypot(1, slope);
+      }
+      return { x: side ? this.W - x : x, y, nx: side ? -nx : nx, ny, length, straight, r };
+    }
+    update() {
+      if (!this.W) return;
+      const t = this.motion.matches ? total - 1.2 : this.time,
+        state = scene(t),
+        { work, voice, waiting, approved } = state,
+        data = exchanges[this.exchange];
+      this.dataset.phase = state.phase;
+      this.people.forEach((el, i) => el.classList.toggle('cf-speaking', voice?.side === i));
+      this.waiting.classList.toggle('cf-waiting-visible', waiting);
+      this.waiting.setAttribute('aria-hidden', String(!waiting));
+      this.workspace.classList.toggle('cf-workspace-visible', !waiting);
+      this.workspace.setAttribute('aria-hidden', String(waiting));
+      this.waitTitle.textContent = t >= callerStart ? 'Listening to the caller.' :
+        'Ready when you are.';
+      this.waitCaption.textContent = t >= callerStart ? 'Following their tone and intent.' :
+        'Waiting for the caller.';
+      this.content.style.opacity = String(t > total - .6 ? 1 - ease((t - (total - .6)) / .6) :
+        ease(t / .35));
+      const guardResult = work >= timing.toolEnd,
+        guardStart = guardResult ? timing.toolEnd : timing.ackCheckStart,
+        guardEnd = guardResult ? timing.finalCheckEnd : timing.ackCheckEnd;
+      const tasks = [
+      {
+        ...data.discern,
+        start: 0,
+        end: timing.discernEnd,
+        status: 'Understanding',
+        pending: 'Ready to hear tone and intent.'
+      },
+      {
+        ...data.tools,
+        start: timing.toolStart,
+        end: timing.toolEnd,
+        status: 'Retrieving',
+        pending: 'Ready to find the caller’s context.'
+      },
+      {
+        start: guardStart,
+        end: guardEnd,
+        status: guardResult ? 'Checking result' : 'Checking acknowledgment',
+        pending: 'Ready to check each response.',
+        thinking: guardResult ?
+          'Checking the tool result and proposed response against your policies.' :
+          'Checking a reassuring acknowledgment before the agent speaks.',
+        outcome: guardResult ? 'Approved to speak' : 'Acknowledgment checked',
+        tab: guardResult ? 'Speech: approved' : 'Ack: checked',
+        detail: guardResult ? data.finalDetail :
+          'The agent can reassure the caller while the lookup runs.'
+      }];
+      tasks.forEach((task, i) => {
+        const elapsed = work - task.start,
+          started = elapsed >= 0,
+          resolved = work >= task.end,
+          active = started && !resolved;
+        const row = this.rows[i],
+          progress = clamp(elapsed / (task.end - task.start)),
+          label = resolved ? task.tab : ['Discernment', 'Tools', 'Guardrails'][i];
+        row.dataset.state = resolved ? 'done' : active ? 'working' : 'waiting';
+        this.stepLabels[i].textContent = label;
+        this.steps[i].classList.toggle('cf-step-resolved', resolved);
+        this.steps[i].classList.toggle('cf-step-active', started);
+        this.steps[i].setAttribute('aria-label',
+          `${['Discernment','Tools','Guardrails'][i]}: ${resolved?task.outcome:active?task.status:'waiting'}`
+        );
+        this.fills[i].style.transform = `scaleX(${progress})`;
+        row.querySelector('.cf-status b').textContent = resolved ? 'Complete' : active ?
+          task.status : 'Waiting';
+        row.querySelector('h3').textContent = resolved ? task.outcome : '';
+        const text = resolved ? task.detail : started ? task.thinking : task.pending;
+        // A quick text reveal without a cursor; row dimensions stay stable while it resolves.
+        const visible = active ? text.slice(0, Math.max(1, Math.floor(text.length * clamp((
+          elapsed + .08) / .65)))) : text;
+        row.querySelector('.cf-row-body p').textContent = visible;
+      });
+      this.deck.classList.toggle('cf-deck-approved', approved);
+      const responseReady = work >= timing.replyStart,
+        ackReady = work >= timing.ackStart,
+        speaking = state.ack || state.reply;
+      this.output.classList.toggle('cf-output-speaking', speaking);
+      this.output.querySelector('span').textContent = responseReady ?
+        'Responding with context' : ackReady && work < timing.toolEnd ? (state.ack ?
+          'Speaking · lookup still running' : 'Lookup still running') : work >= timing
+        .toolEnd && !approved ? 'Checking the next response' : approved ? 'Ready to respond' :
+        ackReady ? 'Acknowledgment delivered' : 'Preparing an acknowledgment';
+      this.output.querySelector('p').textContent = responseReady ? `“${data.reply}”` :
+        ackReady ? `“${data.acknowledgment}”` : 'The agent can respond while work continues.';
+      const height = waiting ? this.waiting.offsetHeight : this.workspace.offsetHeight;
+      if (this.content.style.height !== `${height}px`) this.content.style.height =
+        `${height}px`;
+      const geometry = this.voicePath(0, 0),
+        halfWidth = Math.max(36, geometry.straight * .34);
+      // Keep work moving around the outside while an independently checked acknowledgment exits.
+      let dotPoint = null,
+        dotOpacity = 1,
+        dotRadius = 6;
+      if (work >= 0 && work < timing.replyStart && this.orbitLength) {
+        const lap = clamp(work / timing.replyStart);
+        dotPoint = this.orbitPath.getPointAtLength(lap * this.orbitLength);
+        dotRadius = 6 + (geometry.r - 6) * (1 - ease(Math.min(lap, 1 - lap) / .025));
+      } else if (work < 0 && state.callerTime > pulseTravel - .4) {
+        const q = clamp(state.callerTime / pulseTravel),
+          head = -halfWidth + (geometry.length + halfWidth) * q,
+          point = this.voicePath(clamp(head / geometry.length) * geometry.length, 0);
+        dotPoint = { x: point.x - this.deckLeft, y: point.y - this.deckTop };
+        dotOpacity = ease((state.callerTime - (pulseTravel - .4)) / .15);
+        dotRadius = geometry.r;
+      }
+      if (dotPoint) {
+        this.orbitDot.setAttribute('cx', dotPoint.x);
+        this.orbitDot.setAttribute('cy', dotPoint.y);
+        this.orbitDot.setAttribute('r', dotRadius);
+        this.orbitDot.setAttribute('fill', yellow);
+      }
+      this.orbitDot.style.opacity = dotPoint ?
+        String(dotOpacity) : '0';
+      const exiting = voice?.side === 1 && voice.local < .4;
+      if (exiting) {
+        const point = this.voicePath(geometry.length - (geometry.length +
+          halfWidth) * voice.local / pulseTravel, 1);
+        this.responseDot.setAttribute('cx', point.x - this.deckLeft);
+        this.responseDot.setAttribute('cy', point.y - this.deckTop);
+        this.responseDot.setAttribute('r', geometry.r);
+        this.responseDot.setAttribute('fill', green);
+      }
+      this.responseDot.style.opacity = exiting ? String(1 - ease((voice.local - .15) / .25)) :
+        '0';
+      this.wave.forEach((dot, i) => {
+        const perSide = this.columns * 5,
+          side = i < perSide ? 0 : 1,
+          col = Math.floor((i % perSide) / 5),
+          row = i % 5 - 2,
+          d = geometry.length * col / (this.columns - 1),
+          point = this.voicePath(d, side),
+          active = voice?.side === side;
+        let energy = 0;
+        if (active)
+          for (let pulse = 0; pulse < 3; pulse++) {
+            const travel = (voice.local - pulse * voice.gap) / pulseTravel;
+            if (travel < 0 || travel > 1) continue;
+            const head = voice.inbound ? -halfWidth + (geometry.length + halfWidth) *
+              travel : geometry.length - (geometry.length + halfWidth) * travel,
+              z = (d - head) / halfWidth;
+            if (Math.abs(z) < 1) energy += (1 + Math.cos(Math.PI * z)) / 2 * (voice
+              .inbound ? ease((1 - travel) / .14) : ease(travel / .14)) * [1, .78, .9][
+              pulse
+            ];
+          }
+        const crest = Math.tanh(energy) * 1.25,
+          offset = row * crest * point.r * 1.22,
+          bud = row === 0 ? 1 : ease(Math.abs(offset) / (point.r * 1.65));
+        const activity = active ? ease(voice.local / .4) * ease((voice.duration - voice
+          .local) / .4) : 0;
+        // Both resting paths stay present through typing, outcomes and the reset.
+        const opacity = .64 + .22 * activity;
+        dot.setAttribute('cx', point.x + point.nx * offset);
+        dot.setAttribute('cy', point.y + point.ny * offset);
+        dot.setAttribute('r', point.r * bud);
+        dot.setAttribute('fill', side ? green : yellow);
+        dot.setAttribute('opacity', String(opacity));
+      });
+    }
+    schedule() {
+      cancelAnimationFrame(this.raf);
+      this.last = 0;
+      this.update();
+      if (this.visible && !this.motion.matches && !document.hidden) this.raf =
+        requestAnimationFrame(t => this.tick(t));
+    }
+    tick(now) {
+      if (this.last) {
+        this.time += Math.min(.05, (now - this.last) / 1000) *
+          playbackRate;
+        if (this.time >= total) {
+          this.time %= total;
+          this.exchange = (this.exchange + 1) % exchanges.length;
+        }
+      }
+      this.last = now;
+      this.update();
+      this.raf = requestAnimationFrame(t => this.tick(t));
+    }
+    disconnectedCallback() {
+      cancelAnimationFrame(this.raf);
+      this.observer?.disconnect();
+      this.resize?.disconnect();
+      window.removeEventListener('resize', this.onResize);
+      this.motion?.removeEventListener('change', this.onMotion);
+      document.removeEventListener('visibilitychange', this.onVisibility);
+      this.ready = false;
+    }
+  }
+  customElements.define('prsm-call-flow', CallFlow);
 })();
