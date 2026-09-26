@@ -1784,9 +1784,7 @@ const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const ctx = overlay.getContext('2d');
 
     let began, lastTime, previousTurn = -1.7;
-    if (!(hero instanceof PrsmStreamHero)) {
-      hero.yaw -= 1.7;
-    }
+    hero.yaw -= 1.7;
 
     const finish = () => {
       reveal.forEach((el) => {
