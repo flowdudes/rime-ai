@@ -1754,12 +1754,12 @@ const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
   };
 
   function start() {
-    // Select between Refraction (default) and Stream Studies (?heroStudy=ribbon | signal | fan)
-    const study = new URLSearchParams(location.search).get('heroStudy');
-    const hero = (window.PrsmStreamHero && window.PrsmStreamHero.STUDIES && study && window
-        .PrsmStreamHero.STUDIES[study]) ?
-      new PrsmStreamHero(canvas, { study }) :
-      new PrsmHero(canvas, PrsmHero.REFRACTION);
+    // Default to the new Ribbon Stream hero (Image 2)
+    const urlStudy = new URLSearchParams(location.search).get('heroStudy');
+    const chosenStudy = (urlStudy && window.PrsmStreamHero?.STUDIES[urlStudy]) ? urlStudy :
+      'ribbon';
+
+    const hero = new PrsmStreamHero(canvas, { study: chosenStudy });
 
     hero.set({ lineY: 0.4 });
     heroEl.style.background = hero.s.ground;
@@ -1784,7 +1784,9 @@ const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const ctx = overlay.getContext('2d');
 
     let began, lastTime, previousTurn = -1.7;
-    hero.yaw -= 1.7;
+    if (!(hero instanceof PrsmStreamHero)) {
+      hero.yaw -= 1.7;
+    }
 
     const finish = () => {
       reveal.forEach((el) => {
