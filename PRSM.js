@@ -230,7 +230,7 @@
   };
 })();
 /* ==========================================================================
-   PRISM HERO ENGINE (Self-Contained Runner with Stream Ribbon Default)
+   PRISM HERO ENGINE (Unified, Self-Contained Stream Runner)
    ========================================================================== */
 (() => {
   const TAU = Math.PI * 2;
@@ -249,8 +249,18 @@
     const B = hex2(b);
     return toHex(hex2(a).map((v, i) => (v * B[i]) / 255));
   };
+  const mix = (a, b, k) => {
+    const A = hex2(a),
+      B = hex2(b);
+    return toHex(A.map((v, i) => v + (B[i] - v) * k));
+  };
+  const easeBack = (t, c1 = 0.9) => {
+    const c2 = c1 * 1.525;
+    return t < 0.5 ?
+      (Math.pow(2 * t, 2) * ((c2 + 1) * 2 * t - c2)) / 2 :
+      (Math.pow(2 * t - 2, 2) * ((c2 + 1) * (2 * t - 2) + c2) + 2) / 2;
+  };
 
-  // Standalone Color Tokens to prevent window.PRSM dependency crashes
   const PRSM_C = {
     yellow: "#f0be4d",
     pink: "#f08add",
@@ -303,21 +313,189 @@
     EMIT = 1.7,
     HOLD = 0.65;
 
-  class PrsmStreamHero extends window.PrsmHero {
+  const DEFAULTS = {
+    motionMode: 'stream',
+    faceBlend: 'screen',
+    ground: "#2e2a25",
+    arrow: "#ffa0ff",
+    dotA: "#ffd46f",
+    dotB: "#8be89a",
+    arrowSize: 0.2,
+    lineY: 0.4,
+    dots: true,
+    speedMul: 1.0,
+    arrowShape: 0.866,
+    turnDir: 1,
+    dotSize: 1.3,
+    dotX: 0.07,
+    radius: 11,
+    colGap: 2.2,
+    speed: 240,
+    words: 26,
+    drift: 36,
+    driftRate: 3.5,
+    appear: 1.1,
+    sway: 0.12,
+    swaySpeed: 0.7,
+    spin: 3.2,
+    strike: 0.45,
+    brake: 1.3,
+    slack: 1.2
+  };
+
+  /* ---------------- Base Hero Class ---------------- */
+  class PrsmHero {
     constructor(canvas, opts = {}) {
-      super(canvas, {
-        ground: '#2e2a25',
-        arrowSize: 0.2,
-        arrowShape: 0.866,
-        lineY: 0.4,
-        dots: true,
-        dotSize: 1.3,
-        dotX: 0.07,
-        radius: 11,
-        speedMul: 1.0,
-        ...opts,
-        motionMode: 'stream'
+      this.canvas = canvas;
+      this.g = canvas.getContext("2d");
+      this.off = document.createElement("canvas");
+      this.og = this.off.getContext("2d");
+      this.s = Object.assign({}, DEFAULTS, opts);
+      this.reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      this.raf = 0;
+      this.reset();
+      this.resizeObserver = new ResizeObserver(() => this.resize());
+      this.resizeObserver.observe(canvas);
+      this.resize();
+    }
+    set(patch) {
+      Object.assign(this.s, patch);
+    }
+    reset() {
+      this.appear = 1;
+      this.t = 0.01;
+      this.speaker = 0;
+      this.phase = "speak";
+      this.cols = [];
+      this.yaw = 0.24;
+      this.pitch = 0;
+      this.rest = 0;
+      this.swayT = 0;
+      this.omega = 0;
+      this.spin = "rest";
+      this.drift = 0;
+      this.driftV = 0;
+      this.driftTo = 0;
+    }
+    resize() {
+      const c = this.canvas;
+      this.dpr = Math.min(devicePixelRatio || 1, 2);
+      this.W = c.clientWidth || 1;
+      this.H = c.clientHeight || 1;
+      c.width = this.off.width = Math.floor(this.W * this.dpr);
+      c.height = this.off.height = Math.floor(this.H * this.dpr);
+    }
+    geo() {
+      const s = this.s,
+        W = this.W,
+        H = this.H;
+      const base = H * s.arrowSize,
+        hx = base * s.arrowShape;
+      const cx = W / 2 + this.drift,
+        cy = H * s.lineY;
+      return {
+        cx,
+        cy,
+        base,
+        hx,
+        dotA: { x: W * s.dotX, y: cy },
+        dotB: {
+          x: W * (1 - s.dotX),
+          y: cy
+        }
+      };
+    }
+    solid(G) {
+      const hx = G.hx,
+        b = G.base,
+        F = [
+          [hx * 2 / 3, 0],
+          [-hx / 3, -b / 2],
+          [-hx / 3, b / 2]
+        ];
+      const edge = (Math.hypot(F[0][0] - F[1][0], F[0][1] - F[1][1]) + Math.hypot(F[1][0] - F[2]
+          [0], F[1][1] - F[2][1]) + Math.hypot(F[2][0] - F[0][0], F[2][1] - F[0][1])) / 3,
+        h = edge * 0.8165;
+      return {
+        V: [
+          [F[0][0], F[0][1], h / 4],
+          [F[1][0], F[1][1], h / 4],
+          [F[2][0], F[2][1], h / 4],
+          [0, 0, -3 * h / 4]
+        ],
+        h,
+        hx
+      };
+    }
+    flip(G) { const { h, hx } = this.solid(G); return Math.atan2(-h, hx / 3) + Math.PI; }
+    project(G) {
+      const { V } = this.solid(G), cA = Math.cos(this.yaw), sA = Math.sin(this.yaw), cP = Math
+        .cos(this.pitch), sP = Math.sin(this.pitch);
+      return V.map(([x, y, z]) => {
+        const x1 = x * cA + z * sA,
+          z1 = -x * sA + z * cA;
+        return [x1, y * cP - z1 * sP, y * sP + z1 * cP];
       });
+    }
+    faces(G, includeBack = false) {
+      const s = this.s,
+        R = this.project(G || this.geo()),
+        cols = [s.arrow, s.faceBack, s.faceA, s.faceB];
+      return [
+        [0, 1, 2],
+        [3, 2, 1],
+        [0, 3, 1],
+        [0, 2, 3]
+      ].map((idx, i) => {
+        const [a, b, c] = idx.map((k) => R[k]),
+          e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]],
+          e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[
+          1] - e1[1] * e2[0]];
+        const ctr = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[
+          2]) / 3];
+        if (n[0] * ctr[0] + n[1] * ctr[1] + n[2] * ctr[2] < 0) n = n.map((v) => -v);
+        const area = Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[
+          1])) / 2;
+        return { idx, i, z: ctr[2], front: n[2] > 0, colour: cols[i], area };
+      }).filter((f) => includeBack || f.front).sort((a, b) => a.z - b.z);
+    }
+    start() {
+      if (this.io) return;
+      let last = 0;
+      const loop = (now) => {
+        const dt = last ? Math.min(0.05, (now - last) / 1000) : 0.016;
+        last = now;
+        this.tick(dt);
+        this.draw();
+        this.raf = requestAnimationFrame(loop);
+      };
+      this.io = new IntersectionObserver((es) => {
+        const on = es.some((e) => e.isIntersecting);
+        if (on && !this.raf) {
+          last = 0;
+          this.raf = requestAnimationFrame(loop);
+        } else if (!on && this.raf) {
+          cancelAnimationFrame(this.raf);
+          this.raf = 0;
+        }
+      });
+      this.io.observe(this.canvas);
+    }
+    stop() {
+      if (this.io) {
+        this.io.disconnect();
+        this.io = null;
+      }
+      cancelAnimationFrame(this.raf);
+      this.raf = 0;
+    }
+  }
+
+  /* ---------------- Stream Ribbon Hero Subclass ---------------- */
+  class PrsmStreamHero extends PrsmHero {
+    constructor(canvas, opts = {}) {
+      super(canvas, opts);
       this.study = 'ribbon';
       Object.assign(this.s, {
         ground: '#2e2a25',
@@ -351,7 +529,6 @@
         streamHold: HOLD,
         ...FACES
       });
-      this.t = 0.01;
       this.pose();
     }
 
@@ -385,7 +562,6 @@
       if (this.reduced) {
         this.yaw = 0.24;
         this.pitch = -0.3 * this.s.streamFloat;
-        this.poseAnchor = 0.5;
         this.drift = 0;
         this.prismScale = 1;
         this.spin = 'rest';
@@ -404,8 +580,7 @@
     }
 
     idleYaw(time) {
-      return 0.12 + 0.045 * Math.sin(time * 0.7 * this.s.streamFloatSpeed) * this.s
-        .streamFloat;
+      return 0.12 + 0.045 * Math.sin(time * 0.7 * this.s.streamFloatSpeed) * this.s.streamFloat;
     }
 
     setPose(elapsed, start, dir, rotation, response) {
@@ -447,8 +622,7 @@
             dx = b.x - a.x,
             dy = b.y - a.y;
           if (cross(a, b, c) < 0) inside = false;
-          const q = clamp(((c.x - a.x) * dx + (c.y - a.y) * dy) / (dx * dx + dy * dy ||
-            1));
+          const q = clamp(((c.x - a.x) * dx + (c.y - a.y) * dy) / (dx * dx + dy * dy || 1));
           if ((c.x - a.x - q * dx) ** 2 + (c.y - a.y - q * dy) ** 2 <= c.r * c.r)
             return true;
         }
@@ -481,11 +655,10 @@
         baseAttack = Math.min(this.s.streamReactionEase, emit * 0.8);
       const motionFor = release => {
         const span = Math.max(0.05, release - impact);
-        const settle = Math.min(this.s.streamSettleSeconds * this.s.streamReturnLength,
-          leg - release - 0.12);
+        const settle = Math.min(this.s.streamSettleSeconds * this.s.streamReturnLength, leg -
+          release - 0.12);
         return {
-          attack: Math.min(span, baseAttack + (span - baseAttack) * this.s
-            .streamArrivalFlow),
+          attack: Math.min(span, baseAttack + (span - baseAttack) * this.s.streamArrivalFlow),
           settle,
           turnSeconds: Math.min(this.s.streamTurnSeconds + span * 0.6 * this.s
             .streamArrivalFlow + settle * this.s.streamTurnCarry, leg - impact - 0.12)
@@ -500,8 +673,8 @@
           r = this.dotRadius();
         return this.touchesPrism(this.circles(G, {
           min: Math.min(...xs) - r,
-          max: Math.max(
-            ...xs) + r
+          max: Math.max(...
+            xs) + r
         }), G);
       };
       const end = transit + emit;
@@ -529,17 +702,9 @@
       return this._contactPlan = { key, impact, release, ...motionFor(release) };
     }
 
-    set(patch) {
-      super.set(patch);
-      this.pose();
-      this.draw();
-    }
-
     tick(dt) {
-      // Force progression: ensure dt is valid
       const delta = (dt > 0 && dt < 0.1) ? dt : 0.016;
       this.t += delta * (this.s.speedMul || 1) * (this.s.streamSpeed || 1.3);
-      this.appear = 1;
       if (this.canvas.clientWidth !== this.W || this.canvas.clientHeight !== this.H) this
         .resize();
       this.pose();
@@ -565,8 +730,8 @@
     faces(G, includeBack = false) {
       const R = super.project(G || this.geo());
       return super.faces(G, true).map(f => {
-        const [a, b, c] = f.idx.map(k => R[k]), u = b.map((v, i) => v - a[i]), v = c.map((
-          n, i) => n - a[i]);
+        const [a, b, c] = f.idx.map(k => R[k]), u = b.map((v, i) => v - a[i]), v = c.map((n,
+          i) => n - a[i]);
         const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[
           1] * v[0]];
         const ctr = a.map((p, i) => (p + b[i] + c[i]) / 3),
@@ -679,8 +844,8 @@
       const faces = this.faces(G, true);
       const path = f => {
         g.beginPath();
-        f.idx.forEach((k, j) => j ? g.lineTo(G.P[k][0], G.P[k][1]) : g.moveTo(G.P[k][0], G
-          .P[k][1]));
+        f.idx.forEach((k, j) => j ? g.lineTo(G.P[k][0], G.P[k][1]) : g.moveTo(G.P[k][0], G.P[
+          k][1]));
         g.closePath();
       };
       faces.filter(f => f.front).forEach(near => {
@@ -731,10 +896,10 @@
       }
       const x = Math.max(0, Math.floor(Math.min(...circles.map(c => c.x - c.r)) * d) - 1);
       const y = Math.max(0, Math.floor(Math.min(...circles.map(c => c.y - c.r)) * d) - 1);
-      const w = Math.min(floor.width, Math.ceil(Math.max(...circles.map(c => c.x + c.r)) *
-        d) + 1) - x;
-      const h = Math.min(floor.height, Math.ceil(Math.max(...circles.map(c => c.y + c.r)) *
-        d) + 1) - y;
+      const w = Math.min(floor.width, Math.ceil(Math.max(...circles.map(c => c.x + c.r)) * d) +
+        1) - x;
+      const h = Math.min(floor.height, Math.ceil(Math.max(...circles.map(c => c.y + c.r)) * d) +
+        1) - y;
       if (w <= 0 || h <= 0) return;
       f.setTransform(1, 0, 0, 1, 0, 0);
       f.globalAlpha = 1;
@@ -806,18 +971,19 @@
         [G.dotA, this.voiceColors[0]],
         [G.dotB, this.voiceColors[1]]
       ];
-      if (this.s.dots) voices.forEach(([pt, col]) => {
+      voices.forEach(([pt, col]) => {
         g.globalAlpha = 1;
         g.fillStyle = col;
         g.beginPath();
-        g.arc(pt.x, pt.y, Math.min(this.s.radius, this.W * 0.015) * this.s.dotSize, 0,
-          TAU);
+        g.arc(pt.x, pt.y, Math.min(this.s.radius, this.W * 0.015) * this.s.dotSize, 0, TAU);
         g.fill();
       });
       g.globalAlpha = 1;
     }
   }
 
+  // Expose globally
+  window.PrsmHero = PrsmHero;
   window.PrsmStreamHero = PrsmStreamHero;
 })();
 
@@ -830,21 +996,17 @@
   if (!canvas || !heroEl) return;
 
   const boot = () => {
-    if (!window.PrsmStreamHero || !window.PrsmHero) return setTimeout(boot, 30);
+    if (!window.PrsmStreamHero) return setTimeout(boot, 30);
 
-    // Explicitly enforce dark styling on the container
     heroEl.style.backgroundColor = '#2e2a25';
     heroEl.style.color = '#f0e9dd';
 
-    // Directly launch the ribbon study (Image 2)
     const hero = new window.PrsmStreamHero(canvas);
     hero.set({ lineY: 0.4 });
     window.__prsm = { hero };
 
-    // Standard run loop
     hero.start();
 
-    // Responsive position layout
     const layout = () => {
       const h = heroEl.clientHeight || 1;
       const prism = (hero.s.arrowSize || 0.2) * h;
@@ -854,7 +1016,6 @@
     new ResizeObserver(layout).observe(heroEl);
     layout();
 
-    // Align subhead top with H1
     const h1El = heroEl.querySelector('h1');
     const subEl = heroEl.querySelector('.hero_sub .text-size-medium') || heroEl.querySelector(
       '.hero_sub');
