@@ -988,12 +988,132 @@
 })();
 
 /* ==========================================================================
-   EXECUTION BOOT
+   EXECUTION BOOT (With Zoom-Out Intro Animation)
    ========================================================================== */
 (() => {
   const canvas = document.getElementById('hero-c');
   const heroEl = document.getElementById('hero');
   if (!canvas || !heroEl) return;
+
+  function runIntro(hero) {
+    const stage = document.getElementById('stage');
+    const reveal = [...document.querySelectorAll('.hero-copy')];
+    const overlay = document.createElement('canvas');
+    overlay.className = 'prsm-intro';
+    overlay.setAttribute('aria-hidden', 'true');
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      width: '100%',
+      height: '100%',
+      zIndex: '9999',
+      pointerEvents: 'none'
+    });
+    document.body.appendChild(overlay);
+    const ctx = overlay.getContext('2d');
+
+    let began;
+    let lastTime;
+    let finished = false;
+
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      reveal.forEach((el) => {
+        el.style.removeProperty('transform');
+        el.style.removeProperty('transform-origin');
+      });
+      overlay.remove();
+      if (stage) {
+        stage.style.removeProperty('opacity');
+        stage.style.removeProperty('transform');
+        stage.style.removeProperty('transform-origin');
+      }
+      document.documentElement.classList.remove('prsm-entering');
+      hero.appear = 1;
+      hero.draw();
+      hero.start();
+    };
+
+    const frame = (now) => {
+      if (began === undefined) began = now;
+      const elapsed = (now - began) / 1000;
+      const dt = lastTime === undefined ? 0 : Math.min(0.05, (now - lastTime) / 1000);
+      lastTime = now;
+
+      // Intro lasts ~2.1 seconds
+      if (elapsed >= 2.1 || hero.reduced) {
+        finish();
+        return;
+      }
+
+      const ease = (u) => {
+        u = Math.max(0, Math.min(1, u));
+        return u * u * u * (u * (u * 6 - 15) + 10);
+      };
+
+      const zoom = ease((elapsed - 0.25) / 1.3);
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      const d = Math.min(window.devicePixelRatio || 1, 2);
+
+      if (overlay.width !== Math.round(W * d) || overlay.height !== Math.round(H * d)) {
+        overlay.width = Math.round(W * d);
+        overlay.height = Math.round(H * d);
+      }
+      if (hero.canvas.clientWidth !== hero.W || hero.canvas.clientHeight !== hero.H) {
+        hero.resize();
+      }
+
+      const base = hero.geo();
+      const bounds = hero.canvas.getBoundingClientRect();
+      const initial = Math.min(W, H) * 0.85;
+
+      const G = {
+        ...base,
+        cx: W / 2 + (bounds.left + base.cx - W / 2) * zoom,
+        cy: H / 2 + (bounds.top + base.cy - H / 2) * zoom,
+        base: initial + (base.base - initial) * zoom
+      };
+      G.hx = G.base * hero.s.arrowShape;
+
+      // Soft pre-roll float while zooming
+      hero.t = 0.01;
+      hero.pose();
+      hero.pitch = -0.3 + 0.35 * (1 - zoom);
+
+      ctx.setTransform(d, 0, 0, d, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#2e2a25';
+      ctx.fillRect(0, 0, W, H);
+
+      // Render the faceted glass pyramid scaling down
+      G.P = hero.project(G);
+      hero.glass(ctx, G, true);
+
+      // Scale in the hero copy simultaneously
+      const contentZoom = ease((elapsed - 0.45) / 1.4);
+      const scale = 1 + 1.25 * (1 - contentZoom);
+      reveal.forEach((el) => {
+        el.style.transform = 'none';
+        const box = el.getBoundingClientRect();
+        el.style.transformOrigin = (bounds.left + base.cx - box.left) + 'px ' + (bounds
+          .top + base.cy - box.top) + 'px';
+        el.style.transform = `scale(${scale})`;
+      });
+
+      if (elapsed > 0.6 && stage) {
+        stage.style.opacity = '1';
+      }
+
+      // Smoothly fade out the intro overlay layer
+      overlay.style.opacity = String(1 - ease((elapsed - 1.4) / 0.7));
+      requestAnimationFrame(frame);
+    };
+
+    requestAnimationFrame(frame);
+  }
 
   const boot = () => {
     if (!window.PrsmStreamHero) return setTimeout(boot, 30);
@@ -1005,8 +1125,7 @@
     hero.set({ lineY: 0.4 });
     window.__prsm = { hero };
 
-    hero.start();
-
+    // Layout geometry
     const layout = () => {
       const h = heroEl.clientHeight || 1;
       const prism = (hero.s.arrowSize || 0.2) * h;
@@ -1016,17 +1135,25 @@
     new ResizeObserver(layout).observe(heroEl);
     layout();
 
+    // Text metrics alignment
     const h1El = heroEl.querySelector('h1');
-    const subEl = heroEl.querySelector('.hero_sub .text-size-medium') || heroEl.querySelector(
-      '.hero_sub');
     const wrapEl = heroEl.querySelector('.hero_text-wrap');
-    if (h1El && subEl && wrapEl) {
+    if (h1El && wrapEl) {
       const align = () => {
         const d = (parseFloat(getComputedStyle(h1El).fontSize) || 96) * 0.15;
         wrapEl.style.setProperty('--hero-sub-top', Math.round(d) + 'px');
       };
       new ResizeObserver(align).observe(h1El);
       align();
+    }
+
+    // Trigger the opening camera zoom-out animation on non-hash loads
+    const isReduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!isReduced && !window.location.hash) {
+      document.documentElement.classList.add('prsm-entering');
+      runIntro(hero);
+    } else {
+      hero.start();
     }
   };
 
