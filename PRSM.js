@@ -489,23 +489,23 @@
       this.glass(g, G);
 
       // Real-time convex hull CSS clip-path to keep outer areas clickable
-      if (this.canvas.style) {
-        const points = G.P.map(([x, y]) => [G.cx + x, G.cy + y]).sort((a, b) => a[0] - b[0] ||
-          a[1] - b[1]);
-        const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[
-          0]);
-        const half = list => {
-          const hull = [];
-          for (const p of list) {
-            while (hull.length > 1 && cross(hull.at(-2), hull.at(-1), p) <= 0) hull.pop();
-            hull.push(p);
-          }
-          return hull.slice(0, -1);
-        };
-        const hull = [...half(points), ...half([...points].reverse())];
-        this.canvas.style.clipPath = "polygon(" + hull.map(([x, y]) => `${x}px ${y}px`).join(
-          ",") + ")";
-      }
+      // if (this.canvas.style) {
+      //   const points = G.P.map(([x, y]) => [G.cx + x, G.cy + y]).sort((a, b) => a[0] - b[0] ||
+      //     a[1] - b[1]);
+      //   const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[
+      //     0]);
+      //   const half = list => {
+      //     const hull = [];
+      //     for (const p of list) {
+      //       while (hull.length > 1 && cross(hull.at(-2), hull.at(-1), p) <= 0) hull.pop();
+      //       hull.push(p);
+      //     }
+      //     return hull.slice(0, -1);
+      //   };
+      //   const hull = [...half(points), ...half([...points].reverse())];
+      //   this.canvas.style.clipPath = "polygon(" + hull.map(([x, y]) => `${x}px ${y}px`).join(
+      //     ",") + ")";
+      // }
     }
 
     bindDragEvents() {
