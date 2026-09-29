@@ -283,7 +283,7 @@
       this.s = Object.assign({
         ground: "#2e2a25",
         arrowShape: 0.866,
-        soloSize: 1.25,
+        soloSize: 1.5,
         soloSpeed: 0.61,
         soloTilt: -42,
         soloDrag: 1.3,
@@ -359,7 +359,6 @@
       };
     }
 
-    // In geo()
     geo() {
       const box = this.artBox || {
         cx: this.W / 2,
@@ -368,9 +367,8 @@
         height: this
           .H
       };
-      const base = Math.min(box.width, box.height) * 0.67 * (this.s.soloSize ?? 1.25);
-      // Add a +40px or +60px buffer to cy so it sits lower
-      return { cx: box.cx, cy: box.cy + 40, base, hx: base * this.s.arrowShape };
+      const base = Math.min(box.width, box.height) * 0.67 * (this.s.soloSize ?? 1.5);
+      return { cx: box.cx, cy: box.cy, base, hx: base * this.s.arrowShape };
     }
 
     project(G) {
@@ -490,7 +488,7 @@
 
       this.glass(g, G);
 
-      //Real-time convex hull CSS clip-path to keep outer areas clickable
+      // Real-time convex hull CSS clip-path to keep outer areas clickable
       if (this.canvas.style) {
         const points = G.P.map(([x, y]) => [G.cx + x, G.cy + y]).sort((a, b) => a[0] - b[0] ||
           a[1] - b[1]);
