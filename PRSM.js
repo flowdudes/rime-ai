@@ -230,13 +230,11 @@
   };
 })();
 /* ==========================================================================
-   PRISM HERO ENGINE (Unified, Self-Contained Stream Runner)
+   PRISM SOLO HERO (Interactive 3D Draggable Prism — Standalone)
    ========================================================================== */
 (() => {
   const TAU = Math.PI * 2;
   const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
-  const smooth = (t) => { const n = clamp(t); return n * n * (3 - 2 * n); };
-  const fluid = (n) => { const t = clamp(n); return clamp(t * t * t * (t * (t * 6 - 15) + 10)); };
 
   const hex2 = (h) => {
     h = (h || "#000000").replace("#", "");
@@ -249,173 +247,106 @@
     const B = hex2(b);
     return toHex(hex2(a).map((v, i) => (v * B[i]) / 255));
   };
-  const mix = (a, b, k) => {
-    const A = hex2(a),
-      B = hex2(b);
-    return toHex(A.map((v, i) => v + (B[i] - v) * k));
-  };
-  const easeBack = (t, c1 = 0.9) => {
-    const c2 = c1 * 1.525;
-    return t < 0.5 ?
-      (Math.pow(2 * t, 2) * ((c2 + 1) * 2 * t - c2)) / 2 :
-      (Math.pow(2 * t - 2, 2) * ((c2 + 1) * (2 * t - 2) + c2) + 2) / 2;
-  };
 
-  const PRSM_C = {
+  const C = {
     yellow: "#f0be4d",
     pink: "#f08add",
     aqua: "#1dadc7",
     ink: "#2e2a25",
     paper: "#f0e9dd"
   };
-  const PRSM_MIX = { yellow: "#ffd46f", pink: "#ffa0ff", aqua: "#2cc3e9" };
-
-  const GREEN = multiply(PRSM_C.aqua, PRSM_C.yellow);
-  const BLUE = multiply(PRSM_MIX.pink, PRSM_MIX.aqua);
-  const CORAL = multiply(PRSM_MIX.pink, PRSM_MIX.yellow);
+  const MIX = { yellow: "#ffd46f", pink: "#ffa0ff", aqua: "#2cc3e9" };
 
   const FACES = Object.freeze({
-    arrow: PRSM_C.pink,
-    faceBack: PRSM_C.aqua,
-    faceA: PRSM_C.yellow,
-    faceB: '#ffffff'
-  });
-  const GROUPED_FACETS = Object.freeze({
-    '1:0': BLUE,
-    '1:2': GREEN,
-    '1:3': PRSM_C.aqua,
-    '0:1': BLUE,
-    '2:1': CORAL,
-    '3:1': PRSM_C.pink,
-    '0:2': CORAL,
-    '2:0': CORAL,
-    '0:3': PRSM_C.pink,
-    '3:0': PRSM_C.pink,
-    '2:3': PRSM_C.yellow,
-    '3:2': PRSM_C.yellow,
-  });
-  const FACETS = Object.freeze({
-    '0:1': PRSM_C.yellow,
-    '0:2': BLUE,
-    '0:3': PRSM_C.pink,
-    '1:2': CORAL,
-    '1:3': PRSM_C.aqua,
-    '2:3': GREEN,
-  });
-  const COLORS = Object.freeze([PRSM_C.yellow, BLUE, PRSM_C.pink, GREEN, CORAL, PRSM_C.aqua]);
-  const INSIDE_BLENDS = Object.freeze({
-    Screen: 'screen',
-    Overlay: 'overlay',
-    Multiply: 'multiply'
+    arrow: C.pink,
+    faceBack: C.aqua,
+    faceA: C.yellow,
+    faceB: "#ffffff"
   });
 
-  const TRANSIT = 5,
-    EMIT = 1.7,
-    HOLD = 0.65;
+  const PRSM_SOLO_FACETS = Object.freeze({
+    "0:1": multiply(MIX.pink, MIX.aqua),
+    "0:2": multiply(MIX.pink, MIX.yellow),
+    "0:3": C.pink,
+    "1:2": multiply(C.aqua, C.yellow),
+    "1:3": C.aqua,
+    "2:3": C.yellow,
+  });
 
-  const DEFAULTS = {
-    motionMode: 'stream',
-    faceBlend: 'screen',
-    ground: "#2e2a25",
-    arrow: "#ffa0ff",
-    dotA: "#ffd46f",
-    dotB: "#8be89a",
-    arrowSize: 0.2,
-    lineY: 0.4,
-    dots: true,
-    speedMul: 1.0,
-    arrowShape: 0.866,
-    turnDir: 1,
-    dotSize: 1.3,
-    dotX: 0.07,
-    radius: 11,
-    colGap: 2.2,
-    speed: 240,
-    words: 26,
-    drift: 36,
-    driftRate: 3.5,
-    appear: 1.1,
-    sway: 0.12,
-    swaySpeed: 0.7,
-    spin: 3.2,
-    strike: 0.45,
-    brake: 1.3,
-    slack: 1.2
-  };
-
-  /* ---------------- Base Hero Class ---------------- */
-  class PrsmHero {
+  /* ---------------- Core Prism Engine ---------------- */
+  class PrsmSoloHero {
     constructor(canvas, opts = {}) {
       this.canvas = canvas;
       this.g = canvas.getContext("2d");
-      this.off = document.createElement("canvas");
-      this.og = this.off.getContext("2d");
-      this.s = Object.assign({}, DEFAULTS, opts);
       this.reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-      this.raf = 0;
-      this.reset();
+
+      this.s = Object.assign({
+        ground: "#2e2a25",
+        arrowShape: 0.866,
+        soloSize: 1.5,
+        soloSpeed: 0.61,
+        soloTilt: -42,
+        soloDrag: 1.3,
+        soloWander: 0.95,
+        soloBlend: "Off",
+        streamPaused: false,
+        ...FACES
+      }, opts);
+
+      this.yaw = 0.55;
+      this.pitch = 0;
+      this.roll = 0;
+      this.dragPitch = 0;
+      this.dragging = false;
+      this.resume = 1;
+      this.soloPhase = 0;
+      this.artBox = null;
+
+      this.resize();
       this.resizeObserver = new ResizeObserver(() => this.resize());
       this.resizeObserver.observe(canvas);
-      this.resize();
+
+      this.bindDragEvents();
     }
-    set(patch) {
-      Object.assign(this.s, patch);
-    }
-    reset() {
-      this.appear = 1;
-      this.t = 0.01;
-      this.speaker = 0;
-      this.phase = "speak";
-      this.cols = [];
-      this.yaw = 0.24;
-      this.pitch = 0;
-      this.rest = 0;
-      this.swayT = 0;
-      this.omega = 0;
-      this.spin = "rest";
-      this.drift = 0;
-      this.driftV = 0;
-      this.driftTo = 0;
-    }
+
     resize() {
       const c = this.canvas;
       this.dpr = Math.min(devicePixelRatio || 1, 2);
       this.W = c.clientWidth || 1;
       this.H = c.clientHeight || 1;
-      c.width = this.off.width = Math.floor(this.W * this.dpr);
-      c.height = this.off.height = Math.floor(this.H * this.dpr);
+      c.width = Math.floor(this.W * this.dpr);
+      c.height = Math.floor(this.H * this.dpr);
+
+      const art = this.canvas.parentElement?.querySelector(".hero-art");
+      if (art) {
+        const cb = this.canvas.getBoundingClientRect();
+        const ab = art.getBoundingClientRect();
+        this.artBox = {
+          cx: ab.left - cb.left + ab.width / 2,
+          cy: ab.top - cb.top + ab.height / 2,
+          width: ab.width,
+          height: ab.height
+        };
+      } else {
+        this.artBox = { cx: this.W / 2, cy: this.H / 2, width: this.W, height: this.H };
+      }
+
+      this.pose();
+      this.draw();
     }
-    geo() {
-      const s = this.s,
-        W = this.W,
-        H = this.H;
-      const base = H * s.arrowSize,
-        hx = base * s.arrowShape;
-      const cx = W / 2 + this.drift,
-        cy = H * s.lineY;
-      return {
-        cx,
-        cy,
-        base,
-        hx,
-        dotA: { x: W * s.dotX, y: cy },
-        dotB: {
-          x: W * (1 - s.dotX),
-          y: cy
-        }
-      };
-    }
+
     solid(G) {
       const hx = G.hx,
-        b = G.base,
-        F = [
-          [hx * 2 / 3, 0],
-          [-hx / 3, -b / 2],
-          [-hx / 3, b / 2]
-        ];
-      const edge = (Math.hypot(F[0][0] - F[1][0], F[0][1] - F[1][1]) + Math.hypot(F[1][0] - F[2]
-          [0], F[1][1] - F[2][1]) + Math.hypot(F[2][0] - F[0][0], F[2][1] - F[0][1])) / 3,
-        h = edge * 0.8165;
+        b = G.base;
+      const F = [
+        [hx * 2 / 3, 0],
+        [-hx / 3, -b / 2],
+        [-hx / 3, b / 2]
+      ];
+      const edge = (Math.hypot(F[0][0] - F[1][0], F[0][1] - F[1][1]) +
+        Math.hypot(F[1][0] - F[2][0], F[1][1] - F[2][1]) +
+        Math.hypot(F[2][0] - F[0][0], F[2][1] - F[0][1])) / 3;
+      const h = edge * 0.8165;
       return {
         V: [
           [F[0][0], F[0][1], h / 4],
@@ -427,39 +358,215 @@
         hx
       };
     }
-    flip(G) { const { h, hx } = this.solid(G); return Math.atan2(-h, hx / 3) + Math.PI; }
+
+    geo() {
+      const box = this.artBox || {
+        cx: this.W / 2,
+        cy: this.H / 2,
+        width: this.W,
+        height: this
+          .H
+      };
+      const base = Math.min(box.width, box.height) * 0.67 * (this.s.soloSize ?? 1.5);
+      return { cx: box.cx, cy: box.cy, base, hx: base * this.s.arrowShape };
+    }
+
     project(G) {
-      const { V } = this.solid(G), cA = Math.cos(this.yaw), sA = Math.sin(this.yaw), cP = Math
-        .cos(this.pitch), sP = Math.sin(this.pitch);
+      const { V } = this.solid(G);
+      const cA = Math.cos(this.yaw),
+        sA = Math.sin(this.yaw);
+      const cP = Math.cos(this.pitch),
+        sP = Math.sin(this.pitch);
+      const cR = Math.cos(this.roll || 0),
+        sR = Math.sin(this.roll || 0);
+
       return V.map(([x, y, z]) => {
-        const x1 = x * cA + z * sA,
-          z1 = -x * sA + z * cA;
-        return [x1, y * cP - z1 * sP, y * sP + z1 * cP];
+        const x1 = x * cA + z * sA;
+        const z1 = -x * sA + z * cA;
+        const x2 = x1;
+        const y2 = y * cP - z1 * sP;
+        const z2 = y * sP + z1 * cP;
+        return [x2 * cR - y2 * sR, x2 * sR + y2 * cR, z2];
       });
     }
+
     faces(G, includeBack = false) {
-      const s = this.s,
-        R = this.project(G || this.geo()),
-        cols = [s.arrow, s.faceBack, s.faceA, s.faceB];
+      const R = this.project(G || this.geo());
+      const cols = [this.s.arrow, this.s.faceBack, this.s.faceA, this.s.faceB];
       return [
         [0, 1, 2],
         [3, 2, 1],
         [0, 3, 1],
         [0, 2, 3]
       ].map((idx, i) => {
-        const [a, b, c] = idx.map((k) => R[k]),
-          e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]],
-          e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-        let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[
-          1] - e1[1] * e2[0]];
-        const ctr = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[
-          2]) / 3];
-        if (n[0] * ctr[0] + n[1] * ctr[1] + n[2] * ctr[2] < 0) n = n.map((v) => -v);
-        const area = Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[
-          1])) / 2;
-        return { idx, i, z: ctr[2], front: n[2] > 0, colour: cols[i], area };
-      }).filter((f) => includeBack || f.front).sort((a, b) => a.z - b.z);
+        const [a, b, c] = idx.map(k => R[k]);
+        const u = b.map((v, idx2) => v - a[idx2]);
+        const v = c.map((n, idx2) => n - a[idx2]);
+        const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[
+          1] * v[0]];
+        const ctr = a.map((p, idx2) => (p + b[idx2] + c[idx2]) / 3);
+        const outward = n.reduce((sum, p, idx2) => sum + p * ctr[idx2], 0) < 0 ? -1 : 1;
+        return { idx, i, front: n[2] * outward > 0, colour: cols[i] };
+      }).filter(f => includeBack || f.front);
     }
+
+    facetColor(a, b) {
+      return PRSM_SOLO_FACETS[[a.i, b.i].sort((x, y) => x - y).join(":")];
+    }
+
+    pose() {
+      const t = this.soloPhase || 0;
+      const w = this.s.soloWander ?? 0.95;
+      this.pitch = (this.s.soloTilt ?? -42) * Math.PI / 180 + (this.dragPitch || 0) +
+        w * (0.42 * Math.sin(t * 0.79) + 0.13 * Math.sin(t * 1.37));
+      this.roll = w * (0.24 * Math.sin(t * 0.63) + 0.09 * (Math.sin(t * 1.19 + 0.7) - Math.sin(
+        0.7)));
+    }
+
+    tick(dt) {
+      if (this.reduced || this.s.streamPaused || this.dragging) return;
+      this.resume = (this.resume ?? 1) + (1 - (this.resume ?? 1)) * (1 - Math.exp(-dt / 0.6));
+      const before = this.soloPhase || 0;
+      const after = before + dt * this.s.soloSpeed * this.resume;
+      const drift = t => 0.16 * Math.sin(t * 0.81) + 0.07 * Math.sin(t * 1.31 + 0.9);
+
+      this.yaw += after - before + (this.s.soloWander ?? 0.95) * (drift(after) - drift(before));
+      this.soloPhase = after;
+      this.pose();
+    }
+
+    drag(dx, dy) {
+      this.yaw += dx * 0.006 * this.s.soloDrag;
+      this.dragPitch = Math.max(-1.2, Math.min(1.2, (this.dragPitch || 0) + dy * 0.006 * this.s
+        .soloDrag));
+      this.pose();
+      this.draw();
+    }
+
+    glass(g, G) {
+      g.save();
+      g.translate(G.cx, G.cy);
+      g.globalCompositeOperation = "source-over";
+      g.globalAlpha = 1;
+
+      const faces = this.faces(G, true);
+      const path = f => {
+        g.beginPath();
+        f.idx.forEach((k, j) => (j ? g.lineTo(G.P[k][0], G.P[k][1]) : g.moveTo(G.P[k][0], G.P[
+          k][1])));
+        g.closePath();
+      };
+
+      faces.filter(f => f.front).forEach(near => {
+        g.save();
+        path(near);
+        g.clip();
+        faces.filter(f => !f.front).forEach(far => {
+          const color = this.facetColor(near, far);
+          g.fillStyle = color;
+          g.strokeStyle = color;
+          g.lineWidth = 0.6;
+          path(far);
+          g.fill();
+          g.stroke();
+        });
+        g.restore();
+      });
+      g.restore();
+    }
+
+    draw() {
+      if (!this.W) return;
+      const g = this.g;
+      const G = this.geo();
+      G.P = this.project(G);
+
+      g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      g.globalCompositeOperation = "source-over";
+      g.globalAlpha = 1;
+      g.clearRect(0, 0, this.W, this.H);
+
+      this.glass(g, G);
+
+      // Real-time convex hull CSS clip-path to keep outer areas clickable
+      if (this.canvas.style) {
+        const points = G.P.map(([x, y]) => [G.cx + x, G.cy + y]).sort((a, b) => a[0] - b[0] ||
+          a[1] - b[1]);
+        const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[
+          0]);
+        const half = list => {
+          const hull = [];
+          for (const p of list) {
+            while (hull.length > 1 && cross(hull.at(-2), hull.at(-1), p) <= 0) hull.pop();
+            hull.push(p);
+          }
+          return hull.slice(0, -1);
+        };
+        const hull = [...half(points), ...half([...points].reverse())];
+        this.canvas.style.clipPath = "polygon(" + hull.map(([x, y]) => `${x}px ${y}px`).join(
+          ",") + ")";
+      }
+    }
+
+    bindDragEvents() {
+      const canvas = this.canvas;
+      let pointer = null,
+        lastX = 0,
+        lastY = 0;
+
+      canvas.tabIndex = 0;
+      canvas.style.cursor = "grab";
+      canvas.setAttribute("role", "img");
+      canvas.setAttribute("aria-label",
+        "Rotating 3D Prism. Drag to rotate, use arrow keys to turn, or Space to pause.");
+
+      canvas.addEventListener("pointerdown", event => {
+        if (event.button !== 0 || pointer !== null) return;
+        pointer = event.pointerId;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        this.dragging = true;
+        this.resume = 0;
+        canvas.style.cursor = "grabbing";
+        canvas.setPointerCapture(pointer);
+        canvas.focus({ preventScroll: true });
+      });
+
+      canvas.addEventListener("pointermove", event => {
+        if (event.pointerId !== pointer) return;
+        this.drag(event.clientX - lastX, event.clientY - lastY);
+        lastX = event.clientX;
+        lastY = event.clientY;
+      });
+
+      const release = () => {
+        pointer = null;
+        this.dragging = false;
+        canvas.style.cursor = "grab";
+      };
+
+      ["pointerup", "pointercancel", "lostpointercapture"].forEach(type => {
+        canvas.addEventListener(type, release);
+      });
+
+      canvas.addEventListener("keydown", event => {
+        const steps = {
+          ArrowLeft: [-18, 0],
+          ArrowRight: [18, 0],
+          ArrowUp: [0, -18],
+          ArrowDown: [0, 18]
+        };
+        if (steps[event.key]) {
+          event.preventDefault();
+          this.drag(...steps[event.key]);
+        }
+        if (event.code === "Space") {
+          event.preventDefault();
+          this.s.streamPaused = !this.s.streamPaused;
+        }
+      });
+    }
+
     start() {
       if (this.io) return;
       let last = 0;
@@ -482,6 +589,7 @@
       });
       this.io.observe(this.canvas);
     }
+
     stop() {
       if (this.io) {
         this.io.disconnect();
@@ -492,673 +600,56 @@
     }
   }
 
-  /* ---------------- Stream Ribbon Hero Subclass ---------------- */
-  class PrsmStreamHero extends PrsmHero {
-    constructor(canvas, opts = {}) {
-      super(canvas, opts);
-      this.study = 'ribbon';
-      Object.assign(this.s, {
-        ground: '#2e2a25',
-        streamWidth: 0.95,
-        streamSpread: 1.25,
-        streamSpeed: 1.3,
-        streamSpacing: 1.45,
-        streamLines: 17,
-        streamPaused: false,
-        streamRotationX: 0,
-        streamRotationY: 0,
-        streamFloat: 0.15,
-        streamTurnSeconds: 1.65,
-        streamShiftX: 70,
-        streamReactionEase: 1.2,
-        streamScaleGrowth: 0.55,
-        streamSettleSeconds: 1.15,
-        streamInsideBlend: 'Multiply',
-        streamInsideStrength: 0.95,
-        streamFacetLayout: 'Grouped',
-        streamPrismSize: 0.75,
-        streamFloatSpeed: 1.25,
-        streamBellPower: 1.8,
-        streamBloom: 1.2,
-        streamColorOffset: 0,
-        streamArrivalFlow: 1,
-        streamTurnCarry: 1,
-        streamReturnLength: 2.5,
-        streamTransit: TRANSIT,
-        streamEmit: EMIT,
-        streamHold: HOLD,
-        ...FACES
-      });
-      this.pose();
-    }
-
-    get palette() { return COLORS; }
-    get voiceColors() { return [PRSM_C.yellow, PRSM_C.pink]; }
-
-    timing() {
-      const transit = this.s.streamTransit || TRANSIT;
-      const emit = this.s.streamEmit || EMIT;
-      const hold = this.s.streamHold || HOLD;
-      return { transit, emit, hold, leg: transit + emit + hold };
-    }
-
-    facetColor(a, b) {
-      return this.s.streamFacetLayout === 'Grouped' ?
-        GROUPED_FACETS[a.i + ':' + b.i] || PRSM_C.aqua :
-        FACETS[[a.i, b.i].sort((x, y) => x - y).join(':')] || PRSM_C.aqua;
-    }
-
-    resize() {
-      super.resize();
-      this.pose();
-      this.draw();
-    }
-
-    pose() {
-      const { leg } = this.timing();
-      const turn = Math.floor(this.t / leg),
-        dir = turn % 2 ? -1 : 1,
-        elapsed = this.t % leg;
-      if (this.reduced) {
-        this.yaw = 0.24;
-        this.pitch = -0.3 * this.s.streamFloat;
-        this.drift = 0;
-        this.prismScale = 1;
-        this.spin = 'rest';
-      } else {
-        const plan = this.contactPlan(turn, dir);
-        this.impactTime = plan.impact;
-        this.releaseTime = plan.release;
-        const hit = elapsed - plan.impact;
-        const rotation = fluid(hit / plan.turnSeconds);
-        const response = fluid(hit / plan.attack) * (1 - fluid((elapsed - plan.release) / plan
-          .settle));
-        this.setPose(elapsed, turn * leg, dir, rotation, response);
-        this.spin = hit > 0 && (response > 0 || rotation < 1) ? 'run' : 'rest';
-      }
-      Object.assign(this.s, FACES);
-    }
-
-    idleYaw(time) {
-      return 0.12 + 0.045 * Math.sin(time * 0.7 * this.s.streamFloatSpeed) * this.s.streamFloat;
-    }
-
-    setPose(elapsed, start, dir, rotation, response) {
-      const float = this.s.streamFloat;
-      const left = this.flip({ base: 1, hx: this.s.arrowShape });
-      const from = dir > 0 ? left : left + Math.PI;
-      const to = dir > 0 ? left + Math.PI : left;
-      const idleYaw = this.idleYaw(start + elapsed);
-      const excursion = 16 * rotation * rotation * (1 - rotation) * (1 - rotation);
-      this.yaw = from + (to - from) * rotation + idleYaw + dir * this.s.streamRotationY * Math
-        .PI / 180 * excursion;
-      this.pitch = -0.3 * float + dir * this.s.streamRotationX * Math.PI / 180 * excursion;
-      this.contactCorner = 3;
-      this.drift = dir * this.s.streamShiftX * Math.min(1, this.W / 1150) * response;
-      this.prismScale = 1 + this.s.streamScaleGrowth * response;
-    }
-
-    touchesPrism(circles, G) {
-      const pts = G.P.map(([x, y]) => ({ x: G.cx + x, y: G.cy + y })).sort((a, b) => a.x - b
-        .x || a.y - b.y);
-      const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-      const half = points => {
-        const out = [];
-        for (const p of points) {
-          while (out.length > 1 && cross(out.at(-2), out.at(-1), p) <= 0) out.pop();
-          out.push(p);
-        }
-        return out;
-      };
-      const hull = half(pts).slice(0, -1).concat(half(pts.slice().reverse()).slice(0, -1));
-      const minX = pts[0].x,
-        maxX = pts.at(-1).x;
-      return circles.some(c => {
-        if (c.x + c.r < minX || c.x - c.r > maxX) return false;
-        let inside = true;
-        for (let i = 0; i < hull.length; i++) {
-          const a = hull[i],
-            b = hull[(i + 1) % hull.length],
-            dx = b.x - a.x,
-            dy = b.y - a.y;
-          if (cross(a, b, c) < 0) inside = false;
-          const q = clamp(((c.x - a.x) * dx + (c.y - a.y) * dy) / (dx * dx + dy * dy || 1));
-          if ((c.x - a.x - q * dx) ** 2 + (c.y - a.y - q * dy) ** 2 <= c.r * c.r)
-            return true;
-        }
-        return inside;
-      });
-    }
-
-    contactPlan(turn, dir) {
-      const key = JSON.stringify([this.W, this.H, turn, this.s]);
-      if (this._contactPlan?.key === key) return this._contactPlan;
-      const { transit, emit, leg } = this.timing(), start = turn * leg;
-      const firstTouches = t => {
-        this.setPose(t, start, dir, 0, 0);
-        const G = this.geometry(),
-          x = G.start + (G.end - G.start) * t / transit;
-        return this.touchesPrism([{ x, y: G.cy, r: this.dotRadius() }], G);
-      };
-      let lo = 0,
-        hi = transit;
-      for (let i = 1; i <= 96; i++) {
-        const t = transit * i / 96;
-        if (firstTouches(t)) { hi = t; break; } lo = t;
-      }
-      for (let i = 0; i < 20; i++) {
-        const mid = (lo + hi) / 2;
-        if (firstTouches(mid)) hi = mid;
-        else lo = mid;
-      }
-      const impact = hi,
-        baseAttack = Math.min(this.s.streamReactionEase, emit * 0.8);
-      const motionFor = release => {
-        const span = Math.max(0.05, release - impact);
-        const settle = Math.min(this.s.streamSettleSeconds * this.s.streamReturnLength, leg -
-          release - 0.12);
-        return {
-          attack: Math.min(span, baseAttack + (span - baseAttack) * this.s.streamArrivalFlow),
-          settle,
-          turnSeconds: Math.min(this.s.streamTurnSeconds + span * 0.6 * this.s
-            .streamArrivalFlow + settle * this.s.streamTurnCarry, leg - impact - 0.12)
-        };
-      };
-      const passing = t => {
-        const { turnSeconds } = motionFor(t);
-        this.setPose(t, start, dir, fluid((t - impact) / turnSeconds), 1);
-        const G = this.geometry();
-        G.legTime = t;
-        const xs = G.P.map(p => G.cx + p[0]),
-          r = this.dotRadius();
-        return this.touchesPrism(this.circles(G, {
-          min: Math.min(...xs) - r,
-          max: Math.max(...
-            xs) + r
-        }), G);
-      };
-      const end = transit + emit;
-      const lastContact = () => {
-        let lastInside = impact,
-          firstClear = end;
-        for (let i = 0; i <= 48; i++) {
-          const t = impact + (end - impact) * i / 48;
-          if (passing(t)) {
-            lastInside = t;
-            firstClear = end;
-          }
-          else if (firstClear === end) firstClear = t;
-        }
-        let a = lastInside,
-          b = Math.max(firstClear, a);
-        for (let i = 0; i < 18; i++) {
-          const mid = (a + b) / 2;
-          if (passing(mid)) a = mid;
-          else b = mid;
-        }
-        return b;
-      };
-      const release = lastContact();
-      return this._contactPlan = { key, impact, release, ...motionFor(release) };
-    }
-
-    tick(dt) {
-      const delta = (dt > 0 && dt < 0.1) ? dt : 0.016;
-      this.t += delta * (this.s.speedMul || 1) * (this.s.streamSpeed || 1.3);
-      if (this.canvas.clientWidth !== this.W || this.canvas.clientHeight !== this.H) this
-        .resize();
-      this.pose();
-    }
-
-    geo() {
-      const G = super.geo();
-      G.restBase = Math.min(G.base, this.W * 0.23);
-      const clearance = Math.abs(G.dotB.x - G.dotA.x) / 2 - Math.abs(this.drift) - this
-        .dotRadius() * 2;
-      G.base = Math.min(G.restBase * (this.s.streamPrismSize ?? 1) * (this.prismScale || 1),
-        clearance);
-      G.hx = G.base * this.s.arrowShape;
-      return G;
-    }
-
-    project(G) {
-      const P = super.project(G);
-      const offset = P[this.contactCorner ?? 3][1];
-      return P.map(([x, y, z]) => [x, y - offset, z]);
-    }
-
-    faces(G, includeBack = false) {
-      const R = super.project(G || this.geo());
-      return super.faces(G, true).map(f => {
-        const [a, b, c] = f.idx.map(k => R[k]), u = b.map((v, i) => v - a[i]), v = c.map((n,
-          i) => n - a[i]);
-        const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[
-          1] * v[0]];
-        const ctr = a.map((p, i) => (p + b[i] + c[i]) / 3),
-          outward = n.reduce((sum, p, i) => sum + p * ctr[i], 0) < 0 ? -1 : 1;
-        return { ...f, front: n[2] * outward > 0 };
-      }).filter(f => includeBack || f.front);
-    }
-
-    dotRadius() {
-      return 8.2 * clamp(this.W / 1150, 0.46, 1.15) * (this.s.streamWidth || 0.95);
-    }
-
-    lanePairs() {
-      return Math.max(2, Math.min(8, Math.round(((this.s.streamLines || 17) - 1) / 2)));
-    }
-
-    lanes() {
-      const pairs = this.lanePairs();
-      return Array.from({ length: pairs * 2 + 1 }, (_, i) => (i - pairs) / pairs);
-    }
-
-    geometry() {
-      const G = this.geo(),
-        P = this.project(G),
-        cuts = [];
-      [
-        [0, 1],
-        [0, 2],
-        [0, 3],
-        [1, 2],
-        [1, 3],
-        [2, 3]
-      ].forEach(([i, j]) => {
-        const a = P[i],
-          b = P[j];
-        if ((a[1] <= 0 && b[1] >= 0) || (b[1] <= 0 && a[1] >= 0)) {
-          const u = Math.abs(b[1] - a[1]) < 0.0001 ? 0 : -a[1] / (b[1] - a[1]);
-          cuts.push(G.cx + a[0] + (b[0] - a[0]) * u);
-        }
-      });
-      const { leg } = this.timing(), turn = Math.floor(this.t / leg), dir = turn % 2 ? -1 : 1;
-      const entry = dir > 0 ? Math.min(...cuts) : Math.max(...cuts);
-      return {
-        ...G,
-        P,
-        dir,
-        legTime: this.t % leg,
-        entry,
-        splitStart: entry - dir * this.dotRadius(),
-        exit: dir > 0 ? Math.max(...cuts) : Math.min(...cuts),
-        start: dir > 0 ? G.dotA.x : G.dotB.x,
-        end: dir > 0 ? G.dotB.x : G.dotA.x,
-        spread: Math.min(G.restBase * 0.43, this.W * 0.09) * (this.s.streamSpread || 1.25),
-        width: clamp(this.W / 1150, 0.46, 1.15) * (this.s.streamWidth || 0.95)
-      };
-    }
-
-    point(x, lane, G) {
-      const origin = G.splitStart;
-      const q = clamp(G.dir * (x - origin) / Math.max(1, Math.abs(G.end - origin)));
-      const opening = Math.pow(Math.max(0, Math.sin(Math.PI * q)), this.s.streamBellPower ||
-        1.8);
-      return { x, y: G.cy + lane * G.spread * opening };
-    }
-
-    dotColor(x, lane, G) {
-      if (G.dir * (x - G.splitStart) <= 0) return this.voiceColors[G.dir > 0 ? 0 : 1];
-      if (lane === 0) return this.voiceColors[G.dir > 0 ? 1 : 0];
-      return COLORS[(Math.round(Math.abs(lane) * this.lanePairs()) + Math.round(this.s
-        .streamColorOffset || 0)) % COLORS.length];
-    }
-
-    circles(G = this.geometry(), bounds) {
-      const radius = this.dotRadius();
-      const spacing = radius * (this.s.streamSpacing || 1.45);
-      const phase = (this.t * 72 * clamp(this.W / 1150, 0.46, 1.15)) % spacing;
-      const circles = [];
-      const reach = Math.abs(G.end - G.start),
-        positions = [];
-      const { transit, emit } = this.timing(), speed = reach / transit, head = G.legTime *
-        speed;
-      const length = emit * speed;
-      const count = Math.floor(length / spacing) + 1;
-
-      for (let i = 0; i < count; i++) {
-        const distance = head - i * spacing;
-        if (distance >= 0 && distance <= reach) positions.push(G.start + G.dir * distance);
-      }
-
-      const lanes = this.lanes();
-      for (const x of positions) {
-        if (bounds && (x < bounds.min || x > bounds.max)) continue;
-        for (const lane of lanes) {
-          const pt = this.point(x, lane, G);
-          const r = lane === 0 ? radius : radius * smooth(Math.abs(pt.y - G.cy) / (radius * (
-            this.s.streamBloom || 1.2)));
-          if (r < 0.1) continue;
-          circles.push({ x: pt.x, y: pt.y, r, color: this.dotColor(x, lane, G), lane });
-        }
-      }
-      return circles;
-    }
-
-    glass(g, G, front) {
-      if (!front) return;
-      g.save();
-      g.translate(G.cx, G.cy);
-      g.globalCompositeOperation = 'source-over';
-      g.globalAlpha = 1;
-      const faces = this.faces(G, true);
-      const path = f => {
-        g.beginPath();
-        f.idx.forEach((k, j) => j ? g.lineTo(G.P[k][0], G.P[k][1]) : g.moveTo(G.P[k][0], G.P[
-          k][1]));
-        g.closePath();
-      };
-      faces.filter(f => f.front).forEach(near => {
-        g.save();
-        path(near);
-        g.clip();
-        faces.filter(f => !f.front).forEach(far => {
-          const color = this.facetColor(near, far);
-          g.fillStyle = color;
-          g.strokeStyle = color;
-          g.lineWidth = 0.6;
-          path(far);
-          g.fill();
-          g.stroke();
-        });
-        g.restore();
-      });
-      g.restore();
-    }
-
-    prismClip(g, G) {
-      g.beginPath();
-      this.faces(G).forEach(f => {
-        f.idx.forEach((k, j) => {
-          const x = G.cx + G.P[k][0],
-            y = G.cy + G.P[k][1];
-          if (j) g.lineTo(x, y);
-          else g.moveTo(x, y);
-        });
-        g.closePath();
-      });
-      g.clip();
-    }
-
-    liftDarkMixes(circles) {
-      if (!circles.length) return;
-      if (!this.floorCanvas) {
-        this.floorCanvas = document.createElement('canvas');
-        this.floorG = this.floorCanvas.getContext('2d');
-      }
-      const floor = this.floorCanvas,
-        f = this.floorG,
-        g = this.g,
-        d = this.dpr;
-      if (floor.width !== this.canvas.width || floor.height !== this.canvas.height) {
-        floor.width = this.canvas.width;
-        floor.height = this.canvas.height;
-      }
-      const x = Math.max(0, Math.floor(Math.min(...circles.map(c => c.x - c.r)) * d) - 1);
-      const y = Math.max(0, Math.floor(Math.min(...circles.map(c => c.y - c.r)) * d) - 1);
-      const w = Math.min(floor.width, Math.ceil(Math.max(...circles.map(c => c.x + c.r)) * d) +
-        1) - x;
-      const h = Math.min(floor.height, Math.ceil(Math.max(...circles.map(c => c.y + c.r)) * d) +
-        1) - y;
-      if (w <= 0 || h <= 0) return;
-      f.setTransform(1, 0, 0, 1, 0, 0);
-      f.globalAlpha = 1;
-      f.globalCompositeOperation = 'source-over';
-      f.drawImage(this.canvas, x, y, w, h, x, y, w, h);
-      f.globalCompositeOperation = 'luminosity';
-      f.fillStyle = '#2e2a25';
-      f.fillRect(x, y, w, h);
-      g.save();
-      g.globalAlpha = 1;
-      g.globalCompositeOperation = 'lighten';
-      g.drawImage(floor, x, y, w, h, x / d, y / d, w / d, h / d);
-      g.restore();
-    }
-
-    draw() {
-      const g = this.g,
-        o = this.og,
-        G = this.geometry(),
-        circles = this.circles(G);
-      g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-      g.globalCompositeOperation = 'source-over';
-      g.globalAlpha = 1;
-      g.fillStyle = '#2e2a25';
-      g.fillRect(0, 0, this.W, this.H);
-
-      if (circles.length) {
-        o.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-        o.globalAlpha = 1;
-        o.globalCompositeOperation = 'source-over';
-        o.fillStyle = '#ffffff';
-        o.fillRect(0, 0, this.W, this.H);
-        o.globalCompositeOperation = 'multiply';
-        circles.forEach(c => {
-          o.fillStyle = c.color;
-          o.beginPath();
-          o.arc(c.x, c.y, c.r, 0, TAU);
-          o.fill();
-        });
-        o.globalCompositeOperation = 'destination-in';
-        o.fillStyle = '#000000';
-        o.beginPath();
-        circles.forEach(c => {
-          o.moveTo(c.x + c.r, c.y);
-          o.arc(c.x, c.y, c.r, 0, TAU);
-        });
-        o.fill();
-        g.drawImage(this.off, 0, 0, this.W, this.H);
-      }
-
-      this.glass(g, G, true);
-
-      if (circles.length) {
-        g.save();
-        this.prismClip(g, G);
-        const strength = clamp(this.s.streamInsideStrength);
-        g.globalCompositeOperation = 'source-over';
-        g.globalAlpha = 1 - strength;
-        g.drawImage(this.off, 0, 0, this.W, this.H);
-        g.globalCompositeOperation = INSIDE_BLENDS[this.s.streamInsideBlend] || 'screen';
-        g.globalAlpha = strength;
-        g.drawImage(this.off, 0, 0, this.W, this.H);
-        g.restore();
-      }
-
-      this.liftDarkMixes(circles);
-
-      const voices = [
-        [G.dotA, this.voiceColors[0]],
-        [G.dotB, this.voiceColors[1]]
-      ];
-      voices.forEach(([pt, col]) => {
-        g.globalAlpha = 1;
-        g.fillStyle = col;
-        g.beginPath();
-        g.arc(pt.x, pt.y, Math.min(this.s.radius, this.W * 0.015) * this.s.dotSize, 0, TAU);
-        g.fill();
-      });
-      g.globalAlpha = 1;
-    }
-  }
-
-  // Expose globally
-  window.PrsmHero = PrsmHero;
-  window.PrsmStreamHero = PrsmStreamHero;
+  window.PrsmSoloHero = PrsmSoloHero;
 })();
 
 /* ==========================================================================
-   EXECUTION BOOT (With Zoom-Out Intro Animation)
+   SOLO PRISM PAGE BOOTSTRAPPER
    ========================================================================== */
 (() => {
-  const canvas = document.getElementById('hero-c');
-  const heroEl = document.getElementById('hero');
+  const canvas = document.getElementById("hero-c");
+  const heroEl = document.getElementById("hero");
   if (!canvas || !heroEl) return;
 
-  function runIntro(hero) {
-    const stage = document.getElementById('stage');
-    const reveal = [...document.querySelectorAll('.hero-copy')];
-    const overlay = document.createElement('canvas');
-    overlay.className = 'prsm-intro';
-    overlay.setAttribute('aria-hidden', 'true');
-    Object.assign(overlay.style, {
-      position: 'fixed',
-      inset: '0',
-      width: '100%',
-      height: '100%',
-      zIndex: '9999',
-      pointerEvents: 'none'
-    });
-    document.body.appendChild(overlay);
-    const ctx = overlay.getContext('2d');
-
-    let began;
-    let lastTime;
-    let finished = false;
-
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      reveal.forEach((el) => {
-        el.style.removeProperty('transform');
-        el.style.removeProperty('transform-origin');
-      });
-      overlay.remove();
-      if (stage) {
-        stage.style.removeProperty('opacity');
-        stage.style.removeProperty('transform');
-        stage.style.removeProperty('transform-origin');
-      }
-      document.documentElement.classList.remove('prsm-entering');
-      hero.appear = 1;
-      hero.draw();
-      hero.start();
-    };
-
-    const frame = (now) => {
-      if (began === undefined) began = now;
-      const elapsed = (now - began) / 1000;
-      const dt = lastTime === undefined ? 0 : Math.min(0.05, (now - lastTime) / 1000);
-      lastTime = now;
-
-      // Intro lasts ~2.1 seconds
-      if (elapsed >= 2.1 || hero.reduced) {
-        finish();
-        return;
-      }
-
-      const ease = (u) => {
-        u = Math.max(0, Math.min(1, u));
-        return u * u * u * (u * (u * 6 - 15) + 10);
-      };
-
-      const zoom = ease((elapsed - 0.25) / 1.3);
-      const W = window.innerWidth;
-      const H = window.innerHeight;
-      const d = Math.min(window.devicePixelRatio || 1, 2);
-
-      if (overlay.width !== Math.round(W * d) || overlay.height !== Math.round(H * d)) {
-        overlay.width = Math.round(W * d);
-        overlay.height = Math.round(H * d);
-      }
-      if (hero.canvas.clientWidth !== hero.W || hero.canvas.clientHeight !== hero.H) {
-        hero.resize();
-      }
-
-      const base = hero.geo();
-      const bounds = hero.canvas.getBoundingClientRect();
-      const initial = Math.min(W, H) * 0.85;
-
-      const G = {
-        ...base,
-        cx: W / 2 + (bounds.left + base.cx - W / 2) * zoom,
-        cy: H / 2 + (bounds.top + base.cy - H / 2) * zoom,
-        base: initial + (base.base - initial) * zoom
-      };
-      G.hx = G.base * hero.s.arrowShape;
-
-      // Soft pre-roll float while zooming
-      hero.t = 0.01;
-      hero.pose();
-      hero.pitch = -0.3 + 0.35 * (1 - zoom);
-
-      ctx.setTransform(d, 0, 0, d, 0, 0);
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = '#2e2a25';
-      ctx.fillRect(0, 0, W, H);
-
-      // Render the faceted glass pyramid scaling down
-      G.P = hero.project(G);
-      hero.glass(ctx, G, true);
-
-      // Scale in the hero copy simultaneously
-      const contentZoom = ease((elapsed - 0.45) / 1.4);
-      const scale = 1 + 1.25 * (1 - contentZoom);
-      reveal.forEach((el) => {
-        el.style.transform = 'none';
-        const box = el.getBoundingClientRect();
-        el.style.transformOrigin = (bounds.left + base.cx - box.left) + 'px ' + (bounds
-          .top + base.cy - box.top) + 'px';
-        el.style.transform = `scale(${scale})`;
-      });
-
-      if (elapsed > 0.6 && stage) {
-        stage.style.opacity = '1';
-      }
-
-      // Smoothly fade out the intro overlay layer
-      overlay.style.opacity = String(1 - ease((elapsed - 1.4) / 0.7));
-      requestAnimationFrame(frame);
-    };
-
-    requestAnimationFrame(frame);
-  }
-
   const boot = () => {
-    if (!window.PrsmStreamHero) return setTimeout(boot, 30);
+    if (!window.PrsmSoloHero) return setTimeout(boot, 30);
 
-    heroEl.style.backgroundColor = '#2e2a25';
-    heroEl.style.color = '#f0e9dd';
+    // Enforce dark theme
+    heroEl.style.backgroundColor = "#2e2a25";
+    heroEl.style.color = "#f0e9dd";
 
-    const hero = new window.PrsmStreamHero(canvas);
-    hero.set({ lineY: 0.4 });
+    // Clean up any lingering intro classes
+    document.documentElement.classList.remove("prsm-entering");
+
+    const hero = new window.PrsmSoloHero(canvas);
     window.__prsm = { hero };
 
-    // Layout geometry
+    hero.start();
+
+    // Responsive layout
     const layout = () => {
       const h = heroEl.clientHeight || 1;
-      const prism = (hero.s.arrowSize || 0.2) * h;
-      hero.set({ lineY: Math.max(0.05, Math.min(0.95, (226 + prism / 2) / h)) });
-      heroEl.style.setProperty('--hero-copy-top', Math.round(226 + prism + 100) + 'px');
+      const prism = 0.25 * h;
+      heroEl.style.setProperty("--hero-copy-top", Math.round(226 + prism + 60) + "px");
     };
     new ResizeObserver(layout).observe(heroEl);
     layout();
 
-    // Text metrics alignment
-    const h1El = heroEl.querySelector('h1');
-    const wrapEl = heroEl.querySelector('.hero_text-wrap');
+    // Text metric alignment
+    const h1El = heroEl.querySelector("h1");
+    const wrapEl = heroEl.querySelector(".hero_text-wrap");
     if (h1El && wrapEl) {
       const align = () => {
         const d = (parseFloat(getComputedStyle(h1El).fontSize) || 96) * 0.15;
-        wrapEl.style.setProperty('--hero-sub-top', Math.round(d) + 'px');
+        wrapEl.style.setProperty("--hero-sub-top", Math.round(d) + "px");
       };
       new ResizeObserver(align).observe(h1El);
       align();
     }
-
-    // Trigger the opening camera zoom-out animation on non-hash loads
-    const isReduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (!isReduced && !window.location.hash) {
-      document.documentElement.classList.add('prsm-entering');
-      runIntro(hero);
-    } else {
-      hero.start();
-    }
   };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
   } else {
     boot();
   }
