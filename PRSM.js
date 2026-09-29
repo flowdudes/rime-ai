@@ -283,7 +283,7 @@
       this.s = Object.assign({
         ground: "#2e2a25",
         arrowShape: 0.866,
-        soloSize: 1.5,
+        soloSize: 1.25,
         soloSpeed: 0.61,
         soloTilt: -42,
         soloDrag: 1.3,
