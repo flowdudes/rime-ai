@@ -361,8 +361,13 @@
 
     // In geo()
     geo() {
-      const box = this.artBox || { cx: this.W / 2, cy: this.H / 2, width: this.W, height: this
-          .H };
+      const box = this.artBox || {
+        cx: this.W / 2,
+        cy: this.H / 2,
+        width: this.W,
+        height: this
+          .H
+      };
       const base = Math.min(box.width, box.height) * 0.67 * (this.s.soloSize ?? 1.25);
       // Add a +40px or +60px buffer to cy so it sits lower
       return { cx: box.cx, cy: box.cy + 40, base, hx: base * this.s.arrowShape };
